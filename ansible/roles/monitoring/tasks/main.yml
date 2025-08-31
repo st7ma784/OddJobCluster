@@ -1,0 +1,61 @@
+---
+- name: Add Prometheus Helm repository
+  command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  args:
+    creates: /root/.config/helm/repositories.lock
+
+- name: Add Grafana Helm repository
+  command: helm repo add grafana https://grafana.github.io/helm-charts
+
+- name: Update Helm repositories
+  command: helm repo update
+
+- name: Create monitoring namespace
+  command: kubectl create namespace monitoring
+  register: create_namespace
+  failed_when: false
+  changed_when: create_namespace.rc != 0
+
+- name: Install Prometheus using Helm
+  command: >
+    helm upgrade --install prometheus prometheus-community/kube-prometheus-stack
+    --namespace monitoring
+    --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=20Gi
+    --set grafana.adminPassword=admin
+    --set grafana.service.type=ClusterIP
+  register: prometheus_install
+  changed_when: "'STATUS: deployed' in prometheus_install.stdout"
+
+- name: Create Grafana ingress configuration
+  copy:
+    content: |
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: grafana-ingress
+        namespace: monitoring
+        annotations:
+          nginx.ingress.kubernetes.io/rewrite-target: /
+      spec:
+        rules:
+        - http:
+            paths:
+            - path: /grafana
+              pathType: Prefix
+              backend:
+                service:
+                  name: prometheus-grafana
+                  port:
+                    number: 80
+    dest: /tmp/grafana-ingress.yaml
+    mode: '0644'
+
+- name: Apply Grafana ingress
+  command: kubectl apply -f /tmp/grafana-ingress.yaml
+
+- name: Wait for Prometheus to be ready
+  command: kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=prometheus -n monitoring --timeout=300s
+  register: prometheus_ready
+  until: prometheus_ready.rc == 0
+  retries: 5
+  delay: 30

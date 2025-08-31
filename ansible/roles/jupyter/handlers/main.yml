@@ -1,0 +1,4 @@
+---
+- name: restart jupyterhub
+  command: kubectl rollout restart deployment/hub -n {{ jupyterhub_namespace }}
+  ignore_errors: yes

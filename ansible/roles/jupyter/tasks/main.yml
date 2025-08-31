@@ -1,0 +1,55 @@
+---
+- name: Install Helm
+  shell: |
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+
+- name: Add JupyterHub Helm repository
+  command: helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/
+  args:
+    creates: /root/.config/helm/repositories.lock
+
+- name: Update Helm repositories
+  command: helm repo update
+
+- name: Create JupyterHub namespace
+  command: kubectl create namespace {{ jupyterhub_namespace }}
+  register: create_namespace
+  failed_when: false
+  changed_when: create_namespace.rc != 0
+
+- name: Create JupyterHub configuration
+  template:
+    src: jupyterhub-config.yaml.j2
+    dest: /tmp/jupyterhub-config.yaml
+    mode: '0644'
+
+- name: Install JupyterHub using Helm
+  command: >
+    helm upgrade --cleanup-on-fail \
+    --install jupyterhub jupyterhub/jupyterhub \
+    --namespace {{ jupyterhub_namespace }} \
+    --version={{ jupyterhub_version }} \
+    --values /tmp/jupyterhub-config.yaml
+  register: helm_install
+  changed_when: "'STATUS: deployed' in helm_install.stdout"
+
+- name: Get JupyterHub proxy public URL
+  command: kubectl get --namespace {{ jupyterhub_namespace }} svc proxy-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  register: jupyterhub_service_ip
+  until: jupyterhub_service_ip.rc == 0
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Set JupyterHub URL fact
+  set_fact:
+    jupyterhub_url: "http://{{ jupyterhub_service_ip.stdout }}"
+
+- name: Print JupyterHub access information
+  debug:
+    msg: |
+      JupyterHub is now accessible at: {{ jupyterhub_url }}
+      Default admin user: admin
+      To get the admin password, run: kubectl get secret --namespace {{ jupyterhub_namespace }} hub -o jsonpath="{.data.values\.yaml}" | base64 --decode | grep -A 2 'admin:'

@@ -1,0 +1,133 @@
+---
+- name: Install SLURM dependencies
+  apt:
+    name:
+      - slurm-wlm
+      - slurm-wlm-basic-plugins
+      - slurm-wlm-torque
+      - slurmctld
+      - slurmd
+      - slurmdbd
+      - munge
+      - mariadb-server
+      - python3-pymysql
+      - python3-mysqldb
+    state: present
+
+- name: Create SLURM directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: '0755'
+  with_items:
+    - /var/spool/slurmctld
+    - /var/log/slurm
+    - /var/run/slurm
+
+- name: Generate munge key on control node
+  command: dd if=/dev/urandom bs=1 count=1024 of=/etc/munge/munge.key
+  args:
+    creates: /etc/munge/munge.key
+  when: inventory_hostname in groups['slurm_control']
+
+- name: Set munge key permissions on control node
+  file:
+    path: /etc/munge/munge.key
+    owner: munge
+    group: munge
+    mode: '0400'
+  when: inventory_hostname in groups['slurm_control']
+
+- name: Fetch munge key from control node
+  fetch:
+    src: /etc/munge/munge.key
+    dest: /tmp/munge.key
+    flat: yes
+  when: inventory_hostname in groups['slurm_control']
+
+- name: Copy munge key to worker nodes
+  copy:
+    src: /tmp/munge.key
+    dest: /etc/munge/munge.key
+    owner: munge
+    group: munge
+    mode: '0400'
+  when: inventory_hostname in groups['slurm_node']
+  notify: restart munge
+
+- name: Configure SLURM
+  template:
+    src: slurm.conf.j2
+    dest: /etc/slurm-llnl/slurm.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart slurmd
+
+- name: Configure SLURM database daemon
+  template:
+    src: slurmdbd.conf.j2
+    dest: /etc/slurm-llnl/slurmdbd.conf
+    owner: slurm
+    group: slurm
+    mode: '0600'
+  when: inventory_hostname in groups['slurm_control']
+  notify: restart slurmdbd
+
+- name: Configure SLURM cgroup support
+  copy:
+    src: cgroup.conf
+    dest: /etc/slurm-llnl/cgroup.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart slurmd
+
+- name: Enable and start SLURM services
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+  with_items:
+    - munge
+    - slurmd
+  when: inventory_hostname in groups['slurm_node']
+
+- name: Enable and start SLURM control services
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+  with_items:
+    - slurmctld
+    - slurmdbd
+  when: inventory_hostname in groups['slurm_control']
+
+- name: Initialize SLURM database
+  mysql_db:
+    name: slurm_acct_db
+    state: present
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+  when: inventory_hostname in groups['slurm_control']
+
+- name: Create SLURM database user
+  mysql_user:
+    name: slurm
+    password: "{{ slurmdbd_password }}"
+    priv: "slurm_acct_db.*:ALL"
+    state: present
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+  when: inventory_hostname in groups['slurm_control']
+
+- name: Add cluster to SLURM database
+  command: sacctmgr -i add cluster {{ inventory_hostname }}
+  when: inventory_hostname in groups['slurm_control']
+  register: sacctmgr_add_cluster
+  changed_when: false
+  failed_when: false
+  environment:
+    SLURM_CONF: /etc/slurm-llnl/slurm.conf

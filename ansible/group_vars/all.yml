@@ -1,0 +1,46 @@
+---
+# Kubernetes Configuration
+kubernetes_version: "1.28.0-00"
+kubernetes_apt_key: "https://packages.cloud.google.com/apt/doc/apt-key.gpg"
+kubernetes_apt_repository: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+
+# Container Runtime (containerd)
+containerd_version: "1.6.8-1"
+
+# Network Configuration
+pod_network_cidr: "10.244.0.0/16"
+service_cidr: "10.96.0.0/12"
+
+# SLURM Configuration
+slurm_version: "22.05.9"
+mysql_root_password: "change_this_secure_password"
+slurmdbd_password: "change_this_secure_password"
+
+# JupyterHub Configuration
+jupyterhub_namespace: "jupyter"
+jupyterhub_version: "3.0.0"
+jupyterhub_hostname: "jupyter.your-domain.com"
+
+# Nginx Configuration
+nginx_ingress_version: "1.8.0"
+
+# Monitoring Stack
+prometheus_version: "v0.62.0"
+grafana_version: "6.40.1"
+
+# System Configuration
+system_locale: "en_US.UTF-8"
+timezone: "UTC"
+
+# Docker Configuration
+docker_version: "5:20.10.21~3-0~ubuntu-jammy"
+docker_compose_version: "2.12.2"
+
+# GitHub Pages Configuration
+github_user: "your-github-username"
+github_repo: "your-repo-name"
+github_token: "your-github-token"  # Store this in a vault
+
+# Docker Hub Configuration
+dockerhub_username: "your-dockerhub-username"
+dockerhub_password: "your-dockerhub-password"  # Store this in a vault

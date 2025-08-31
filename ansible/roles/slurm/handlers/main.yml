@@ -1,0 +1,20 @@
+---
+- name: restart munge
+  systemd:
+    name: munge
+    state: restarted
+
+- name: restart slurmd
+  systemd:
+    name: slurmd
+    state: restarted
+
+- name: restart slurmctld
+  systemd:
+    name: slurmctld
+    state: restarted
+
+- name: restart slurmdbd
+  systemd:
+    name: slurmdbd
+    state: restarted

@@ -1,0 +1,132 @@
+---
+- name: Add Kubernetes apt repository key
+  apt_key:
+    url: "{{ kubernetes_apt_key }}"
+    state: present
+
+- name: Add Kubernetes apt repository
+  apt_repository:
+    repo: "{{ kubernetes_apt_repository }}"
+    state: present
+    filename: 'kubernetes'
+    update_cache: yes
+
+- name: Install kubelet, kubeadm and kubectl
+  apt:
+    name:
+      - kubelet={{ kubernetes_version }}
+      - kubeadm={{ kubernetes_version }}
+      - kubectl={{ kubernetes_version }}
+    state: present
+    force_apt_get: yes
+
+- name: Hold Kubernetes packages at current version
+  command: apt-mark hold kubelet kubeadm kubectl
+  changed_when: false
+
+- name: Install containerd
+  apt:
+    name: containerd.io={{ containerd_version }}
+    state: present
+    force_apt_get: yes
+
+- name: Configure containerd
+  template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart containerd
+
+- name: Enable and start containerd
+  systemd:
+    name: containerd
+    enabled: yes
+    state: started
+
+- name: Load kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - br_netfilter
+    - overlay
+
+- name: Configure sysctl for Kubernetes
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+    sysctl_set: yes
+  with_items:
+    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { name: 'net.ipv4.ip_forward', value: '1' }
+
+- name: Initialize Kubernetes cluster on master
+  command: kubeadm init --pod-network-cidr={{ pod_network_cidr }} --service-cidr={{ service_cidr }}
+  when: inventory_hostname in groups['kube_control_plane']
+  register: kubeadm_init
+  changed_when: false
+
+- name: Create .kube directory
+  file:
+    path: /home/{{ ansible_user }}/.kube
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0750'
+  when: inventory_hostname in groups['kube_control_plane']
+
+- name: Copy admin config to user's kube config
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/{{ ansible_user }}/.kube/config
+    remote_src: yes
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  when: inventory_hostname in groups['kube_control_plane']
+
+- name: Install Calico network plugin
+  command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+  when: inventory_hostname in groups['kube_control_plane']
+  environment:
+    KUBECONFIG: /home/{{ ansible_user }}/.kube/config
+
+- name: Get join command
+  command: kubeadm token create --print-join-command
+  register: join_command
+  when: inventory_hostname in groups['kube_control_plane']
+  changed_when: false
+
+- name: Set join command fact
+  set_fact:
+    kubeadm_join: "{{ join_command.stdout }}"
+  when: inventory_hostname in groups['kube_control_plane']
+
+- name: Store join command on control plane
+  copy:
+    content: "{{ kubeadm_join }}"
+    dest: /tmp/kubeadm_join_command
+    mode: '0600'
+  when: inventory_hostname in groups['kube_control_plane']
+
+- name: Fetch join command from control plane
+  fetch:
+    src: /tmp/kubeadm_join_command
+    dest: /tmp/kubeadm_join_command
+    flat: yes
+  when: inventory_hostname in groups['kube_control_plane']
+
+- name: Read join command
+  set_fact:
+    kubeadm_join: "{{ lookup('file', '/tmp/kubeadm_join_command') }}"
+  when: inventory_hostname in groups['kube_node']
+
+- name: Join worker nodes to cluster
+  command: "{{ kubeadm_join }}"
+  when: inventory_hostname in groups['kube_node']
+  register: kubeadm_join_result
+  changed_when: "'This node has joined the cluster' in kubeadm_join_result.stdout"

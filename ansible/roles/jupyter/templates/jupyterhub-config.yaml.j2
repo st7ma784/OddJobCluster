@@ -1,0 +1,125 @@
+# JupyterHub configuration
+proxy:
+  secretToken: "$(openssl rand -hex 32)"
+  service:
+    type: LoadBalancer
+
+hub:
+  config:
+    JupyterHub:
+      admin_access: true
+      allow_named_servers: true
+      base_url: /
+      cookie_secret: "$(openssl rand -hex 32)"
+      default_url: /lab
+
+  # Configure admin users
+  admin:
+    access: true
+    users:
+      - admin
+
+  # Use GitHub OAuth for authentication
+  auth:
+    type: dummy
+    dummy:
+      password: "{{ jupyterhub_admin_password | default('admin') }}"
+    admin:
+      access: true
+      users:
+        - admin
+
+# Configure the single-user server
+singleuser:
+  image:
+    name: jupyter/scipy-notebook
+    tag: latest
+  storage:
+    type: dynamic
+    capacity: 10Gi
+  memory:
+    limit: 4G
+    guarantee: 2G
+  cpu:
+    limit: 2
+    guarantee: 0.5
+
+# Configure the SLURM spawner
+spawner:
+  extra_resource_guarantees:
+    nvidia.com/gpu: 0
+  extra_resource_limits:
+    nvidia.com/gpu: 0
+  uid: 1000
+  fs_gid: 100
+  service_account: default
+  storage:
+    type: dynamic
+    capacity: 1Gi
+  lifecycle_hooks:
+    postStart:
+      exec:
+        command: ["/bin/sh", "-c", "echo 'Hello from the JupyterHub single-user server' > /tmp/startup.log"]
+
+# Configure the Kubernetes executor
+kubernetes:
+  name_template: "jupyter-{username}-{servername}"
+  extra_labels: {}
+  image_pull_secrets: []
+  storage:
+    type: none
+    capacity: 1Gi
+  extra_resource_limits: {}
+  extra_resource_guarantees: {}
+  node_selector: {}
+  uid: 1000
+  fs_gid: 100
+  service_account: default
+  extra_pod_config: {}
+  extra_container_config: {}
+  extra_containers: []
+  lifecycle_hooks: {}
+  init_containers: []
+  extra_container_security_context: {}
+  extra_pod_security_context: {}
+  node_affinity_required: []
+  node_affinity_preferred: []
+  pod_affinity_required: []
+  pod_affinity_preferred: []
+  pod_anti_affinity_preferred: []
+  pod_anti_affinity_required: []
+  tolerations: []
+  priority_class_name: ""
+  extra_resource_requests: {}
+  extra_resource_limits: {}
+  extra_env: {}
+  extra_container_env: {}
+  extra_pod_config_update: {}
+  extra_container_config_update: {}
+  extra_containers_update: []
+  extra_init_containers: []
+  extra_volume_mounts: []
+  extra_volumes: []
+  extra_container_lifecycle: {}
+  extra_container_security_context_update: {}
+  extra_pod_security_context_update: {}
+  extra_node_selector: {}
+  extra_tolerations: []
+  extra_affinity: {}
+  extra_pod_affinity: {}
+  extra_pod_anti_affinity: {}
+  extra_node_affinity: {}
+  extra_pod_affinity_required: []
+  extra_pod_affinity_preferred: []
+  extra_pod_anti_affinity_required: []
+  extra_pod_anti_affinity_preferred: []
+  extra_node_affinity_required: []
+  extra_node_affinity_preferred: []
+  extra_pod_annotations: {}
+  extra_pod_labels: {}
+  extra_container_annotations: {}
+  extra_container_labels: {}
+  extra_pod_annotations_update: {}
+  extra_pod_labels_update: {}
+  extra_container_annotations_update: {}
+  extra_container_labels_update: {}

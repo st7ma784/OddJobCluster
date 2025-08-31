@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Cluster with SLURM and Jupyter</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .service-card {
+            transition: transform 0.3s;
+            margin-bottom: 20px;
+        }
+        .service-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        .status-indicator {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-up {
+            background-color: #28a745;
+        }
+        .status-down {
+            background-color: #dc3545;
+        }
+        .status-warning {
+            background-color: #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">Kubernetes Cluster</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#services">Services</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#documentation">Documentation</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#about">About</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <header class="bg-primary text-white py-5">
+        <div class="container text-center">
+            <h1>Kubernetes Cluster with SLURM and Jupyter</h1>
+            <p class="lead">High-performance computing cluster built on repurposed hardware</p>
+        </div>
+    </header>
+
+    <section id="services" class="py-5">
+        <div class="container">
+            <h2 class="text-center mb-5">Available Services</h2>
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="card service-card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <span class="status-indicator status-up"></span>
+                                JupyterHub
+                            </h5>
+                            <p class="card-text">Interactive computing environment with Jupyter notebooks.</p>
+                            <a href="/jupyter" class="btn btn-primary">Access JupyterHub</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card service-card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <span class="status-indicator status-up"></span>
+                                SLURM Dashboard
+                            </h5>
+                            <p class="card-text">Monitor and manage SLURM cluster jobs and resources.</p>
+                            <a href="/slurm" class="btn btn-primary">Access SLURM Dashboard</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card service-card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <span class="status-indicator status-up"></span>
+                                Kubernetes Dashboard
+                            </h5>
+                            <p class="card-text">Manage your Kubernetes cluster resources and deployments.</p>
+                            <a href="/kubernetes" class="btn btn-primary">Access Kubernetes</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="documentation" class="py-5 bg-light">
+        <div class="container">
+            <h2 class="text-center mb-5">Documentation</h2>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">User Guide</h5>
+                            <p class="card-text">Learn how to use the cluster, submit jobs, and access services.</p>
+                            <a href="#" class="btn btn-outline-primary">View User Guide</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">API Documentation</h5>
+                            <p class="card-text">Technical reference for the SLURM and Kubernetes APIs.</p>
+                            <a href="#" class="btn btn-outline-primary">View API Docs</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="about" class="py-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto text-center">
+                    <h2>About This Cluster</h2>
+                    <p class="lead">This high-performance computing cluster is built using repurposed hardware, running Kubernetes with SLURM for job scheduling and Jupyter for interactive computing.</p>
+                    <p>It's designed to provide a cost-effective solution for research and development workloads.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="bg-dark text-white py-4">
+        <div class="container text-center">
+            <p class="mb-0">&copy; 2023 Kubernetes Cluster with SLURM and Jupyter. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Simple service status check
+        document.addEventListener('DOMContentLoaded', function() {
+            const services = ['jupyter', 'slurm', 'kubernetes'];
+            services.forEach(service => {
+                checkServiceStatus(service);
+                // Check status every 5 minutes
+                setInterval(() => checkServiceStatus(service), 300000);
+            });
+        });
+
+        async function checkServiceStatus(service) {
+            try {
+                const response = await fetch(`/api/status/${service}`);
+                const data = await response.json();
+                updateStatusIndicator(service, data.status);
+            } catch (error) {
+                console.error(`Error checking ${service} status:`, error);
+                updateStatusIndicator(service, 'down');
+            }
+        }
+
+        function updateStatusIndicator(service, status) {
+            const indicator = document.querySelector(`.card-title:contains('${service}') .status-indicator`);
+            if (indicator) {
+                indicator.className = 'status-indicator';
+                indicator.classList.add(`status-${status}`);
+            }
+        }
+    </script>
+</body>
+</html>

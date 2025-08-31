@@ -1,0 +1,11 @@
+---
+- name: Set up Kubernetes cluster with SLURM and Jupyter
+  hosts: all
+  become: true
+  roles:
+    - common
+    - kubernetes
+    - slurm
+    - jupyter
+    - nginx
+    - monitoring

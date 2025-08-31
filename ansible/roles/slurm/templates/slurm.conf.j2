@@ -1,0 +1,62 @@
+# SLURM Configuration File
+ClusterName=cluster
+ControlMachine={{ groups['slurm_control'][0] }}
+ControlAddr={{ hostvars[groups['slurm_control'][0]]['ansible_default_ipv4']['address'] }}
+
+# Authentication
+AuthType=auth/munge
+CryptoType=crypto/munge
+
+# Scheduling
+SchedulerType=sched/backfill
+SelectType=select/cons_tres
+SelectTypeParameters=CR_Core
+
+# Logging and Accounting
+SlurmctldLogFile=/var/log/slurm/slurmctld.log
+SlurmdLogFile=/var/log/slurm/slurmd.log
+JobAcctGatherType=jobacct_gather/linux
+JobAcctGatherFrequency=30
+AccountingStorageType=accounting_storage/slurmdbd
+AccountingStorageHost={{ groups['slurm_control'][0] }}
+AccountingStorageLoc=slurm_acct_db
+AccountingStorageUser=slurm
+
+# Process Tracking
+ProctrackType=proctrack/cgroup
+TaskPlugin=task/cgroup
+
+# Timeouts
+SlurmctldTimeout=120
+SlurmdTimeout=300
+InactiveLimit=0
+MinJobAge=300
+KillWait=30
+Waittime=0
+
+# Retry
+MessageTimeout=10
+GetEnvTimeout=2
+
+# Scheduling
+SchedulerTimeSlice=5
+DefMemPerCPU=0
+MaxJobCount=10000
+MaxArraySize=1001
+DefaultStorageType=shared
+DefaultStorageHost=none
+DefaultStorageLoc=none
+DefaultStorageUser=root
+
+# Node and Partition Configuration
+{% for host in groups['slurm_node'] %}
+NodeName={{ host }} CPUs={{ hostvars[host]['ansible_processor_vcpus'] }} RealMemory={{ (hostvars[host]['ansible_memtotal_mb'] * 0.9) | int }} Sockets={{ hostvars[host]['ansible_processor_count'] }} CoresPerSocket={{ (hostvars[host]['ansible_processor_vcpus'] / hostvars[host]['ansible_processor_count']) | int }} ThreadsPerCore=1 State=UNKNOWN
+{% endfor %}
+
+{% if groups['slurm_control'] is defined %}
+{% for host in groups['slurm_control'] %}
+NodeName={{ host }} CPUs={{ hostvars[host]['ansible_processor_vcpus'] }} RealMemory={{ (hostvars[host]['ansible_memtotal_mb'] * 0.9) | int }} Sockets={{ hostvars[host]['ansible_processor_count'] }} CoresPerSocket={{ (hostvars[host]['ansible_processor_vcpus'] / hostvars[host]['ansible_processor_count']) | int }} ThreadsPerCore=1 State=UNKNOWN
+{% endfor %}
+{% endif %}
+
+PartitionName=debug Nodes={% for host in groups['slurm_node'] %}{{ host }}{% if not loop.last %},{% endif %}{% endfor %}{% if groups['slurm_control'] is defined %},{% for host in groups['slurm_control'] %}{{ host }}{% if not loop.last %},{% endif %}{% endfor %}{% endif %} Default=YES MaxTime=INFINITE State=UP

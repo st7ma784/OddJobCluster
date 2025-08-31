@@ -1,0 +1,100 @@
+---
+- name: Update apt package index
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install basic packages
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - python3-pip
+      - python3-setuptools
+      - git
+      - build-essential
+      - htop
+      - vim
+      - tmux
+      - net-tools
+      - nfs-common
+    state: present
+
+- name: Set timezone
+  timezone:
+    name: "{{ timezone }}"
+
+- name: Configure locale
+  locale_gen:
+    name: "{{ system_locale }}"
+    state: present
+
+- name: Set locale system wide
+  copy:
+    dest: /etc/default/locale
+    content: 'LANG={{ system_locale }}
+LC_ALL={{ system_locale }}
+LANGUAGE={{ system_locale }}'
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Disable swap
+  command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+  ignore_errors: yes
+  register: swapoff_result
+
+- name: Remove swap from /etc/fstab
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    replace: '# \1'
+  when: swapoff_result is defined and swapoff_result.rc == 0
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+    filename: docker
+
+- name: Install Docker
+  apt:
+    name:
+      - docker-ce={{ docker_version }}
+      - docker-ce-cli={{ docker_version }}
+      - containerd.io
+    state: present
+    update_cache: yes
+
+- name: Add current user to docker group
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+
+- name: Enable and start Docker
+  systemd:
+    name: docker
+    enabled: yes
+    state: started
+
+- name: Reboot if needed
+  reboot:
+    msg: "Reboot initiated by Ansible for applying system updates"
+    connect_timeout: 5
+    reboot_timeout: 600
+    pre_reboot_delay: 0
+    post_reboot_delay: 30
+  async: 1
+  poll: 0
+  changed_when: false
