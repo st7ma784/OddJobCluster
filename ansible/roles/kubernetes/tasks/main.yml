@@ -1,8 +1,14 @@
 ---
-- name: Add Kubernetes apt repository key
-  apt_key:
+- name: Add Kubernetes GPG key
+  get_url:
     url: "{{ kubernetes_apt_key }}"
-    state: present
+    dest: /tmp/kubernetes.gpg
+    mode: '0644'
+
+- name: Add Kubernetes GPG key to keyring
+  shell: |
+    gpg --dearmor < /tmp/kubernetes.gpg > /usr/share/keyrings/kubernetes-archive-keyring.gpg
+  become: yes
 
 - name: Add Kubernetes apt repository
   apt_repository:
@@ -14,10 +20,11 @@
 - name: Install kubelet, kubeadm and kubectl
   apt:
     name:
-      - kubelet={{ kubernetes_version }}
-      - kubeadm={{ kubernetes_version }}
-      - kubectl={{ kubernetes_version }}
+      - kubelet
+      - kubeadm
+      - kubectl
     state: present
+    update_cache: yes
     force_apt_get: yes
 
 - name: Hold Kubernetes packages at current version
@@ -26,7 +33,7 @@
 
 - name: Install containerd
   apt:
-    name: containerd.io={{ containerd_version }}
+    name: containerd
     state: present
     force_apt_get: yes
 

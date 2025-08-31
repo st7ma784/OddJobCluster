@@ -1,0 +1,17 @@
+[Service]
+Environment="KUBELET_EXTRA_ARGS=--max-pods={{ arm_max_pods | default(20) }} --kube-reserved=cpu={{ arm_kube_reserved_cpu | default('100m') }},memory={{ arm_kube_reserved_memory | default('200Mi') }} --system-reserved=cpu=50m,memory=100Mi"
+
+{% if is_arm64 or is_armhf %}
+# ARM-specific kubelet configuration
+Environment="KUBELET_CGROUP_ARGS=--cgroup-driver=systemd --runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice"
+
+{% if ansible_board_name is defined and 'raspberry' in ansible_board_name.lower() %}
+# Raspberry Pi optimizations
+Environment="KUBELET_ARM_ARGS=--serialize-image-pulls=false --registry-qps=5 --registry-burst=10 --image-gc-high-threshold=70 --image-gc-low-threshold=60"
+{% endif %}
+
+{% if detected_arch == 'armv7l' %}
+# ARMv7 (32-bit) specific settings
+Environment="KUBELET_ARCH_ARGS=--feature-gates=SupportPodPidsLimit=false"
+{% endif %}
+{% endif %}

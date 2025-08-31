@@ -1,0 +1,45 @@
+version = 2
+
+[plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+    sandbox_image = "registry.k8s.io/pause:3.9"
+    
+    [plugins."io.containerd.grpc.v1.cri".containerd]
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+          runtime_type = "io.containerd.runc.v2"
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+            SystemdCgroup = true
+            
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+          endpoint = ["https://registry-1.docker.io"]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
+          endpoint = ["https://registry.k8s.io"]
+
+{% if is_arm64 %}
+# ARM64 specific optimizations
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  # Reduce memory overhead for ARM devices
+  Root = "/var/lib/containerd"
+  State = "/run/containerd"
+  
+# ARM64 image pulling optimizations
+[plugins."io.containerd.grpc.v1.cri"]
+  max_concurrent_downloads = 2
+  max_container_log_line_size = 16384
+{% endif %}
+
+{% if ansible_board_name is defined and 'raspberry' in ansible_board_name.lower() %}
+# Raspberry Pi specific settings
+[plugins."io.containerd.grpc.v1.cri"]
+  # Reduce resource usage on Pi
+  stream_server_address = "127.0.0.1"
+  stream_server_port = "0"
+  enable_selinux = false
+  
+  # Optimize for SD card storage
+  [plugins."io.containerd.grpc.v1.cri".containerd]
+    snapshotter = "overlayfs"
+{% endif %}

@@ -29,30 +29,16 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if running from project root
-if [ ! -f "ansible/site.yml" ]; then
-    print_error "Please run this script from the project root directory"
     exit 1
-fi
+}
 
-print_status "Starting Kubernetes cluster deployment..."
+warn() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
 
 # Check prerequisites
-print_status "Checking prerequisites..."
-
-if ! command -v python3 &> /dev/null; then
-    print_error "Python 3 is required but not installed"
-    exit 1
-fi
-
-if ! command -v pip &> /dev/null; then
-    print_error "pip is required but not installed"
-    exit 1
-fi
-
-# Create virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    print_status "Creating Python virtual environment..."
+check_prerequisites() {
+    log "Checking prerequisites..."
     python3 -m venv venv
 fi
 

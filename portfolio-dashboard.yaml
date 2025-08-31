@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: portfolio-dashboard
+  namespace: portfolio
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Kubernetes Cluster Portfolio</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .header { background: #2196F3; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+            .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+            .stat-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+            .project-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .status-ready { color: #4CAF50; font-weight: bold; }
+            .status-pending { color: #FF9800; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🚀 Kubernetes SLURM Jupyter Cluster Portfolio</h1>
+            <p>Automated project deployment and management dashboard</p>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Cluster Status</h3>
+                <p class="status-ready">✅ Ready</p>
+                <p>2 Nodes Active</p>
+            </div>
+            <div class="stat-card">
+                <h3>Resources</h3>
+                <p>20 CPU Cores</p>
+                <p>21 GB RAM</p>
+            </div>
+            <div class="stat-card">
+                <h3>Services</h3>
+                <p>Kubernetes: Ready</p>
+                <p>SLURM: Ready</p>
+                <p>JupyterHub: Ready</p>
+            </div>
+        </div>
+        
+        <div class="projects">
+            <div class="project-card">
+                <h3>Portfolio System</h3>
+                <p>Automated GitHub repository scanning and Kubernetes deployment system</p>
+                <p><strong>Status:</strong> <span class="status-ready">Deployed</span></p>
+                <p><strong>Features:</strong></p>
+                <ul>
+                    <li>Docker Compose to Kubernetes conversion</li>
+                    <li>Port conflict resolution</li>
+                    <li>GitHub Actions integration</li>
+                    <li>Project health monitoring</li>
+                </ul>
+            </div>
+            
+            <div class="project-card">
+                <h3>Cluster Access Points</h3>
+                <p><strong>JupyterHub:</strong> <a href="http://192.168.5.57:8000" target="_blank">http://192.168.5.57:8000</a></p>
+                <p><strong>Kubernetes API:</strong> https://192.168.5.57:6443</p>
+                <p><strong>Portfolio Dashboard:</strong> <span class="status-ready">Active</span></p>
+            </div>
+            
+            <div class="project-card">
+                <h3>Next Steps</h3>
+                <ul>
+                    <li>Configure GitHub secrets for automation</li>
+                    <li>Add repository scanning</li>
+                    <li>Deploy sample applications</li>
+                    <li>Monitor cluster health</li>
+                </ul>
+            </div>
+        </div>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-dashboard
+  namespace: portfolio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portfolio-dashboard
+  template:
+    metadata:
+      labels:
+        app: portfolio-dashboard
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: dashboard-content
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: dashboard-content
+        configMap:
+          name: portfolio-dashboard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio-dashboard
+  namespace: portfolio
+spec:
+  selector:
+    app: portfolio-dashboard
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+  type: NodePort

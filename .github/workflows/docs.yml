@@ -1,0 +1,151 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'DEPLOYMENT.md'
+      - 'PROJECT_SUMMARY.md'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'DEPLOYMENT.md'
+      - 'PROJECT_SUMMARY.md'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          npm install -g @vuepress/cli vuepress
+          npm install
+
+      - name: Build documentation
+        run: |
+          # Create VuePress config
+          mkdir -p docs/.vuepress
+          cat > docs/.vuepress/config.js << 'EOF'
+          module.exports = {
+            title: 'Kubernetes Cluster with SLURM and Jupyter',
+            description: 'Production-ready HPC cluster automation',
+            base: '/kubernetes-slurm-cluster/',
+            head: [
+              ['link', { rel: 'icon', href: '/favicon.ico' }]
+            ],
+            themeConfig: {
+              nav: [
+                { text: 'Home', link: '/' },
+                { text: 'Quick Start', link: '/QUICK_INSTALL.html' },
+                { text: 'Deployment', link: '/DEPLOYMENT.html' },
+                { text: 'GitHub', link: 'https://github.com/yourusername/kubernetes-slurm-cluster' }
+              ],
+              sidebar: {
+                '/': [
+                  {
+                    title: 'Getting Started',
+                    collapsable: false,
+                    children: [
+                      ['/', 'Introduction'],
+                      ['/QUICK_INSTALL', 'Quick Install'],
+                      ['/DEPLOYMENT', 'Full Deployment'],
+                      ['/RAPID_DEPLOYMENT', 'Node Scaling']
+                    ]
+                  },
+                  {
+                    title: 'User Guides',
+                    collapsable: false,
+                    children: [
+                      ['/guides/slurm-jobs', 'SLURM Jobs'],
+                      ['/guides/jupyter', 'JupyterHub'],
+                      ['/guides/monitoring', 'Monitoring'],
+                      ['/guides/user-management', 'User Management']
+                    ]
+                  },
+                  {
+                    title: 'Administration',
+                    collapsable: false,
+                    children: [
+                      ['/guides/backup-restore', 'Backup & Restore'],
+                      ['/guides/ssl-setup', 'SSL Configuration'],
+                      ['/guides/troubleshooting', 'Troubleshooting']
+                    ]
+                  },
+                  {
+                    title: 'Reference',
+                    collapsable: false,
+                    children: [
+                      ['/PROJECT_SUMMARY', 'Project Summary'],
+                      ['/api/slurm', 'SLURM API'],
+                      ['/api/kubernetes', 'Kubernetes API']
+                    ]
+                  }
+                ]
+              },
+              repo: 'yourusername/kubernetes-slurm-cluster',
+              repoLabel: 'GitHub',
+              docsDir: 'docs',
+              editLinks: true,
+              editLinkText: 'Edit this page on GitHub'
+            },
+            plugins: [
+              '@vuepress/plugin-back-to-top',
+              '@vuepress/plugin-medium-zoom',
+              [
+                '@vuepress/plugin-search',
+                {
+                  searchMaxSuggestions: 10
+                }
+              ]
+            ]
+          }
+          EOF
+
+          # Copy main documentation files to docs directory
+          cp README.md docs/
+          cp DEPLOYMENT.md docs/
+          cp PROJECT_SUMMARY.md docs/
+
+          # Build with VuePress
+          vuepress build docs
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vuepress/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

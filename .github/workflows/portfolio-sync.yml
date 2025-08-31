@@ -1,0 +1,61 @@
+name: Portfolio Sync - Scan and Deploy Projects
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: 
+      - '.github/workflows/portfolio-sync.yml'
+      - 'scripts/portfolio/**'
+
+env:
+  CLUSTER_HOST: ${{ secrets.CLUSTER_HOST }}
+  CLUSTER_SSH_KEY: ${{ secrets.CLUSTER_SSH_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  scan-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        pip install requests pyyaml kubernetes docker-compose-parser jinja2
+        
+    - name: Setup SSH key for cluster access
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.CLUSTER_SSH_KEY }}" > ~/.ssh/cluster_key
+        chmod 600 ~/.ssh/cluster_key
+        ssh-keyscan -H ${{ secrets.CLUSTER_HOST }} >> ~/.ssh/known_hosts
+        
+    - name: Scan repositories and generate portfolio
+      run: |
+        python scripts/portfolio/portfolio-scanner.py \
+          --github-token "${{ secrets.GITHUB_TOKEN }}" \
+          --cluster-host "${{ secrets.CLUSTER_HOST }}" \
+          --output-dir ./portfolio-output
+          
+    - name: Deploy to cluster
+      run: |
+        python scripts/portfolio/deploy-portfolio.py \
+          --cluster-host "${{ secrets.CLUSTER_HOST }}" \
+          --ssh-key ~/.ssh/cluster_key \
+          --portfolio-dir ./portfolio-output
+          
+    - name: Update portfolio status
+      run: |
+        python scripts/portfolio/update-status.py \
+          --cluster-host "${{ secrets.CLUSTER_HOST }}" \
+          --ssh-key ~/.ssh/cluster_key

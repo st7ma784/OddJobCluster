@@ -1,8 +1,8 @@
 ---
 # Kubernetes Configuration
 kubernetes_version: "1.28.0-00"
-kubernetes_apt_key: "https://packages.cloud.google.com/apt/doc/apt-key.gpg"
-kubernetes_apt_repository: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+kubernetes_apt_key: "https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key"
+kubernetes_apt_repository: "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
 
 # Container Runtime (containerd)
 containerd_version: "1.6.8-1"
@@ -33,7 +33,7 @@ system_locale: "en_US.UTF-8"
 timezone: "UTC"
 
 # Docker Configuration
-docker_version: "5:20.10.21~3-0~ubuntu-jammy"
+docker_version: "5:27.1.1-1~ubuntu.25.04~plucky"
 docker_compose_version: "2.12.2"
 
 # GitHub Pages Configuration

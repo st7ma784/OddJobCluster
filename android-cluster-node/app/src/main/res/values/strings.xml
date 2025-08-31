@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cluster Node</string>
+    <string name="service_name">Android Cluster Node Service</string>
+    <string name="service_description">Connects this Android device to a compute cluster as a worker node</string>
+    <string name="notification_channel_name">Cluster Service</string>
+    <string name="notification_channel_description">Notifications for cluster node service status</string>
+    <string name="notification_title">Cluster Node Active</string>
+    <string name="notification_text">Connected to cluster and processing tasks</string>
+    
+    <!-- Status messages -->
+    <string name="status_connecting">Connecting to cluster...</string>
+    <string name="status_connected">Connected to cluster</string>
+    <string name="status_disconnected">Disconnected from cluster</string>
+    <string name="status_error">Connection error</string>
+    
+    <!-- Error messages -->
+    <string name="error_invalid_url">Invalid cluster URL</string>
+    <string name="error_network_unavailable">Network unavailable</string>
+    <string name="error_connection_failed">Failed to connect to cluster</string>
+    
+    <!-- Settings -->
+    <string name="pref_cluster_url">Cluster URL</string>
+    <string name="pref_cluster_url_summary">WebSocket URL of the cluster master</string>
+    <string name="pref_auto_start">Auto-start service</string>
+    <string name="pref_auto_start_summary">Start cluster service automatically on boot</string>
+    <string name="pref_battery_optimization">Battery optimization</string>
+    <string name="pref_battery_optimization_summary">Disable battery optimization for reliable operation</string>
+</resources>

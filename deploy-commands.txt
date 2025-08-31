@@ -1,0 +1,25 @@
+# Deployment Commands for New Nodes
+
+## Test Ansible Connectivity
+ansible all -m ping -i ansible/inventory.ini
+
+## Deploy to specific node
+ansible-playbook -i ansible/inventory.ini --limit worker-test1 ansible/site.yml
+
+## Deploy to all new nodes
+ansible-playbook -i ansible/inventory.ini --limit "worker-test1,worker-test2,worker-gpu" ansible/site.yml
+
+## Full cluster deployment
+ansible-playbook -i ansible/inventory.ini ansible/site.yml
+
+## Verification commands
+kubectl get nodes -o wide
+sinfo -N -l
+kubectl top nodes
+
+## Test job submission
+srun -N 1 --nodelist=worker-test1 hostname
+sbatch --nodelist=worker-test2 examples/slurm-jobs/hello-world.sh
+
+## GPU testing (if applicable)
+srun --gres=gpu:1 --nodelist=worker-gpu nvidia-smi

@@ -1,8 +1,10 @@
 ---
-- name: Update apt package index
-  apt:
-    update_cache: yes
-    cache_valid_time: 3600
+# Common role tasks
+- include_tasks: packages.yml
+- include_tasks: users.yml
+- include_tasks: ssh.yml
+- include_tasks: security.yml
+- include_tasks: arm-support.yml
 
 - name: Install basic packages
   apt:
@@ -54,25 +56,12 @@ LANGUAGE={{ system_locale }}'
     path: /etc/fstab
     regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
     replace: '# \1'
-  when: swapoff_result is defined and swapoff_result.rc == 0
 
-- name: Add Docker GPG key
-  apt_key:
-    url: https://download.docker.com/linux/ubuntu/gpg
-    state: present
-
-- name: Add Docker repository
-  apt_repository:
-    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-    state: present
-    filename: docker
-
-- name: Install Docker
+- name: Install Docker from Ubuntu repositories
   apt:
     name:
-      - docker-ce={{ docker_version }}
-      - docker-ce-cli={{ docker_version }}
-      - containerd.io
+      - docker.io
+      - containerd
     state: present
     update_cache: yes
 

@@ -1,0 +1,26 @@
+{
+  "name": "kubernetes-slurm-cluster-docs",
+  "version": "1.0.0",
+  "description": "Documentation for Kubernetes Cluster with SLURM and Jupyter",
+  "scripts": {
+    "docs:dev": "vuepress dev docs",
+    "docs:build": "vuepress build docs"
+  },
+  "devDependencies": {
+    "vuepress": "^1.9.7",
+    "@vuepress/plugin-back-to-top": "^1.9.7",
+    "@vuepress/plugin-medium-zoom": "^1.9.7",
+    "@vuepress/plugin-search": "^1.9.7"
+  },
+  "keywords": [
+    "kubernetes",
+    "slurm",
+    "jupyter",
+    "hpc",
+    "cluster",
+    "ansible",
+    "documentation"
+  ],
+  "author": "Kubernetes SLURM Cluster Project",
+  "license": "MIT"
+}

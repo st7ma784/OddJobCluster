@@ -1,0 +1,114 @@
+#!/bin/bash
+
+# ARM Node Information Script
+# Displays comprehensive information about ARM-based cluster nodes
+
+echo "🔍 ARM Node Information"
+echo "======================"
+
+# Basic system info
+echo "📋 System Information:"
+echo "   Hostname: $(hostname)"
+echo "   Architecture: $(uname -m)"
+echo "   Kernel: $(uname -r)"
+echo "   OS: $(lsb_release -d 2>/dev/null | cut -f2 || cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+echo ""
+
+# Hardware information
+echo "🖥️ Hardware Information:"
+if [ -f /proc/cpuinfo ]; then
+    CPU_MODEL=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
+    CPU_CORES=$(nproc)
+    echo "   CPU: $CPU_MODEL"
+    echo "   Cores: $CPU_CORES"
+fi
+
+if [ -f /proc/meminfo ]; then
+    TOTAL_MEM=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
+    echo "   Memory: ${TOTAL_MEM}MB"
+fi
+
+# Raspberry Pi specific info
+if command -v vcgencmd &> /dev/null; then
+    echo ""
+    echo "🍓 Raspberry Pi Information:"
+    echo "   Model: $(cat /proc/device-tree/model 2>/dev/null || echo 'Unknown')"
+    echo "   Serial: $(vcgencmd get_throttled 2>/dev/null || echo 'N/A')"
+    echo "   Temperature: $(vcgencmd measure_temp 2>/dev/null || echo 'N/A')"
+    echo "   GPU Memory: $(vcgencmd get_mem gpu 2>/dev/null || echo 'N/A')"
+    echo "   ARM Memory: $(vcgencmd get_mem arm 2>/dev/null || echo 'N/A')"
+fi
+
+# Temperature monitoring
+echo ""
+echo "🌡️ Temperature Information:"
+if command -v vcgencmd &> /dev/null; then
+    vcgencmd measure_temp 2>/dev/null || echo "   Raspberry Pi temp: Not available"
+elif [ -f /sys/class/thermal/thermal_zone0/temp ]; then
+    TEMP=$(cat /sys/class/thermal/thermal_zone0/temp)
+    echo "   CPU Temperature: $((TEMP/1000))°C"
+else
+    echo "   Temperature monitoring: Not available"
+fi
+
+# Storage information
+echo ""
+echo "💾 Storage Information:"
+df -h / | tail -1 | awk '{print "   Root filesystem: " $2 " total, " $3 " used, " $4 " available (" $5 " used)"}'
+
+# Network information
+echo ""
+echo "🌐 Network Information:"
+ip route get 8.8.8.8 2>/dev/null | head -1 | awk '{print "   Default route via: " $3 " on " $5}' || echo "   Network: Not configured"
+
+# Container runtime status
+echo ""
+echo "📦 Container Runtime:"
+if systemctl is-active --quiet docker; then
+    echo "   Docker: ✅ Running"
+    docker version --format "   Version: {{.Server.Version}}" 2>/dev/null || echo "   Version: Unknown"
+elif systemctl is-active --quiet containerd; then
+    echo "   Containerd: ✅ Running"
+else
+    echo "   Container runtime: ❌ Not running"
+fi
+
+# Kubernetes status
+echo ""
+echo "☸️ Kubernetes Status:"
+if systemctl is-active --quiet kubelet; then
+    echo "   Kubelet: ✅ Running"
+    if command -v kubectl &> /dev/null; then
+        NODE_STATUS=$(kubectl get node $(hostname) -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+        echo "   Node Status: $NODE_STATUS"
+    fi
+else
+    echo "   Kubelet: ❌ Not running"
+fi
+
+# SLURM status
+echo ""
+echo "⚡ SLURM Status:"
+if systemctl is-active --quiet slurmd; then
+    echo "   SLURM Daemon: ✅ Running"
+    if command -v sinfo &> /dev/null; then
+        sinfo -N -h -n $(hostname) 2>/dev/null | awk '{print "   Node State: " $4}' || echo "   Node State: Unknown"
+    fi
+else
+    echo "   SLURM Daemon: ❌ Not running"
+fi
+
+# Performance metrics
+echo ""
+echo "📊 Current Performance:"
+echo "   Load Average: $(uptime | awk -F'load average:' '{print $2}' | xargs)"
+echo "   Memory Usage: $(free | grep Mem | awk '{printf "%.1f%%", $3/$2 * 100.0}')"
+echo "   CPU Usage: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)%"
+
+# Uptime
+echo ""
+echo "⏰ System Uptime:"
+echo "   $(uptime -p)"
+
+echo ""
+echo "✅ ARM Node Information Complete"

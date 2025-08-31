@@ -1,0 +1,102 @@
+---
+# ARM Nodes Configuration
+# Platform-specific settings for ARM-based cluster nodes
+
+# ARM Architecture Settings
+arm_max_pods: 20
+arm_kube_reserved_cpu: "100m"
+arm_kube_reserved_memory: "200Mi"
+arm_system_reserved_cpu: "50m"
+arm_system_reserved_memory: "100Mi"
+
+# Container Runtime Configuration
+containerd_config_template: "containerd-config-arm.toml.j2"
+docker_storage_driver: "overlay2"
+docker_log_driver: "json-file"
+docker_log_opts:
+  max-size: "10m"
+  max-file: "3"
+
+# Kubernetes ARM-specific settings
+kubernetes_version: "1.28.15"
+kubernetes_cni: "flannel"
+kubernetes_pod_subnet: "10.244.0.0/16"
+kubernetes_service_subnet: "10.96.0.0/12"
+
+# ARM Container Images
+kubernetes_images_arm64:
+  - "registry.k8s.io/kube-apiserver:v1.28.15"
+  - "registry.k8s.io/kube-controller-manager:v1.28.15"
+  - "registry.k8s.io/kube-scheduler:v1.28.15"
+  - "registry.k8s.io/kube-proxy:v1.28.15"
+  - "registry.k8s.io/pause:3.9"
+  - "registry.k8s.io/etcd:3.5.12-0"
+  - "registry.k8s.io/coredns/coredns:v1.10.1"
+
+flannel_images_arm64:
+  - "docker.io/flannel/flannel:v0.22.3"
+  - "docker.io/flannel/flannel-cni-plugin:v1.2.0"
+
+# SLURM Configuration for ARM nodes
+slurm_arm_partitions:
+  - name: "arm_compute"
+    nodes: "{{ groups['arm_nodes'] | join(',') }}"
+    default: false
+    max_time: "INFINITE"
+    state: "UP"
+  - name: "edge_compute"
+    nodes: "{{ groups['arm_nodes'] | select('match', '.*rpi.*') | join(',') }}"
+    default: false
+    max_time: "INFINITE" 
+    state: "UP"
+
+# Platform-specific optimizations
+raspberry_pi_optimizations:
+  gpu_mem_split: 16
+  enable_cgroups: true
+  cpu_governor: "performance"
+  swap_size: 2048
+  
+android_optimizations:
+  max_pods: 10
+  termux_packages:
+    - "python"
+    - "nodejs" 
+    - "git"
+    - "curl"
+    - "wget"
+    - "htop"
+
+jetson_optimizations:
+  enable_gpu: true
+  nvidia_runtime: true
+  cuda_support: true
+  tensorrt_support: true
+
+# Monitoring and logging
+arm_monitoring_tools:
+  - "htop"
+  - "iotop" 
+  - "sysstat"
+  - "lm-sensors"
+
+# Temperature thresholds (Celsius)
+temperature_monitoring:
+  warning_threshold: 70
+  critical_threshold: 80
+  check_interval: 300  # seconds
+
+# Network configuration
+arm_network_settings:
+  mtu: 1500
+  enable_ipv6: false
+  dns_servers:
+    - "8.8.8.8"
+    - "1.1.1.1"
+
+# Storage optimization for ARM devices
+storage_optimization:
+  enable_log_rotation: true
+  log_retention_days: 7
+  tmp_on_tmpfs: true
+  reduce_writes: true

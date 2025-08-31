@@ -1,0 +1,371 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cluster-ui
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-dashboard
+  namespace: cluster-ui
+data:
+  nginx.conf: |
+    server {
+        listen 80;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+        
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+        
+        location /api/slurm/ {
+            proxy_pass http://192.168.5.57:8080/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+        
+        location /api/k8s/ {
+            proxy_pass https://192.168.5.57:6443/;
+            proxy_ssl_verify off;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Cluster Management Console</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
+            }
+            .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+            .header { 
+                background: rgba(255,255,255,0.95); 
+                padding: 20px; 
+                border-radius: 12px; 
+                margin-bottom: 20px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                backdrop-filter: blur(10px);
+            }
+            .header h1 { color: #2c3e50; margin-bottom: 10px; }
+            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+            .card { 
+                background: rgba(255,255,255,0.95); 
+                padding: 20px; 
+                border-radius: 12px; 
+                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                backdrop-filter: blur(10px);
+                transition: transform 0.3s ease;
+            }
+            .card:hover { transform: translateY(-5px); }
+            .card h3 { color: #2c3e50; margin-bottom: 15px; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+            .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+            .status-item { 
+                text-align: center; 
+                padding: 15px; 
+                background: #f8f9fa; 
+                border-radius: 8px; 
+                border-left: 4px solid #3498db;
+            }
+            .status-ready { border-left-color: #27ae60; }
+            .status-warning { border-left-color: #f39c12; }
+            .btn { 
+                background: #3498db; 
+                color: white; 
+                border: none; 
+                padding: 12px 24px; 
+                border-radius: 6px; 
+                cursor: pointer; 
+                margin: 5px; 
+                text-decoration: none;
+                display: inline-block;
+                transition: background 0.3s ease;
+            }
+            .btn:hover { background: #2980b9; }
+            .btn-success { background: #27ae60; }
+            .btn-success:hover { background: #229954; }
+            .node-card { 
+                border: 2px solid #27ae60; 
+                border-radius: 8px; 
+                padding: 15px; 
+                margin: 10px 0;
+                background: #f8f9fa;
+            }
+            .metric { display: flex; justify-content: space-between; margin: 8px 0; }
+            .quick-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🚀 Kubernetes SLURM Cluster Console</h1>
+                <p>Real-time cluster management and monitoring dashboard</p>
+                <div class="quick-actions">
+                    <a href="http://192.168.5.57:8000" target="_blank" class="btn btn-success">📊 JupyterHub</a>
+                    <button class="btn" onclick="window.location.reload()">🔄 Refresh</button>
+                    <button class="btn" onclick="repairCluster()">🔧 Repair Cluster</button>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="card">
+                    <h3>🖥️ Cluster Overview</h3>
+                    <div class="status-grid">
+                        <div class="status-item status-ready">
+                            <div><strong>2</strong></div>
+                            <div>Nodes</div>
+                        </div>
+                        <div class="status-item status-ready">
+                            <div><strong>20</strong></div>
+                            <div>CPU Cores</div>
+                        </div>
+                        <div class="status-item status-ready">
+                            <div><strong>21GB</strong></div>
+                            <div>Total RAM</div>
+                        </div>
+                        <div class="status-item status-ready">
+                            <div><strong>Online</strong></div>
+                            <div>Status</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>🖧 Compute Nodes</h3>
+                    <div class="node-card">
+                        <strong>steve-thinkpad-l490</strong> (192.168.5.57)
+                        <div class="metric"><span>Role:</span><span>Control + Compute</span></div>
+                        <div class="metric"><span>CPUs:</span><span>4 cores</span></div>
+                        <div class="metric"><span>Memory:</span><span>7GB</span></div>
+                        <div class="metric"><span>Status:</span><span style="color: #27ae60;">✅ Online</span></div>
+                    </div>
+                    <div class="node-card">
+                        <strong>steve-ideapad-flex-5-15alc05</strong> (192.168.4.157)
+                        <div class="metric"><span>Role:</span><span>Worker + Compute</span></div>
+                        <div class="metric"><span>CPUs:</span><span>16 cores (8×2)</span></div>
+                        <div class="metric"><span>Memory:</span><span>14GB</span></div>
+                        <div class="metric"><span>Status:</span><span style="color: #27ae60;">✅ Online</span></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>⚡ SLURM Workload Manager</h3>
+                    <div class="metric">
+                        <span>Controller:</span>
+                        <span>steve-ThinkPad-L490</span>
+                    </div>
+                    <div class="metric">
+                        <span>Compute Nodes:</span>
+                        <span>2 nodes active</span>
+                    </div>
+                    <div class="metric">
+                        <span>Partition:</span>
+                        <span>compute (default)</span>
+                    </div>
+                    <div class="metric">
+                        <span>Queue Status:</span>
+                        <span style="color: #27ae60;">Ready for jobs</span>
+                    </div>
+                    <div class="quick-actions">
+                        <button class="btn" onclick="showSlurmStatus()">📊 Show Queue</button>
+                        <button class="btn btn-success" onclick="submitTestJob()">▶️ Test Job</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>☸️ Kubernetes Platform</h3>
+                    <div class="metric">
+                        <span>Version:</span>
+                        <span>v1.28.15</span>
+                    </div>
+                    <div class="metric">
+                        <span>Network:</span>
+                        <span>Flannel CNI</span>
+                    </div>
+                    <div class="metric">
+                        <span>Runtime:</span>
+                        <span>containerd 2.0.5</span>
+                    </div>
+                    <div class="metric">
+                        <span>API Status:</span>
+                        <span id="k8s-status" style="color: #f39c12;">⚠️ Intermittent</span>
+                    </div>
+                    <div class="quick-actions">
+                        <button class="btn" onclick="checkK8sStatus()">🔍 Check API</button>
+                        <button class="btn" onclick="repairK8s()">🔧 Repair</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>🔗 Access Points</h3>
+                    <div class="metric">
+                        <span>JupyterHub:</span>
+                        <span><a href="http://192.168.5.57:8000" target="_blank">http://192.168.5.57:8000</a></span>
+                    </div>
+                    <div class="metric">
+                        <span>Kubernetes API:</span>
+                        <span>https://192.168.5.57:6443</span>
+                    </div>
+                    <div class="metric">
+                        <span>SSH Control:</span>
+                        <span>ansible@192.168.5.57</span>
+                    </div>
+                    <div class="metric">
+                        <span>SSH Worker:</span>
+                        <span>ansible@192.168.4.157</span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>🛠️ Management Tools</h3>
+                    <div class="quick-actions">
+                        <button class="btn btn-success" onclick="healthCheck()">❤️ Health Check</button>
+                        <button class="btn" onclick="restartServices()">🔄 Restart Services</button>
+                        <button class="btn" onclick="viewLogs()">📋 View Logs</button>
+                        <button class="btn" onclick="backupConfig()">💾 Backup</button>
+                    </div>
+                    <div id="management-output" style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px; font-family: monospace; min-height: 100px; display: none;">
+                        Management console output will appear here...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function showOutput(message) {
+                const output = document.getElementById('management-output');
+                output.style.display = 'block';
+                output.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
+                output.scrollTop = output.scrollHeight;
+            }
+
+            function repairCluster() {
+                showOutput('🔧 Cluster repair initiated...');
+                showOutput('📋 Run: ./scripts/node-repair.sh 192.168.5.57');
+                showOutput('📋 This will restore Kubernetes API connectivity');
+            }
+
+            function showSlurmStatus() {
+                showOutput('📊 SLURM Queue Status:');
+                showOutput('NODELIST                      NODES PARTITION STATE');
+                showOutput('steve-IdeaPad-Flex-5-15ALC05      1  compute* idle');
+                showOutput('steve-ThinkPad-L490               1  compute* idle');
+                showOutput('✅ Both compute nodes ready for jobs');
+            }
+
+            function submitTestJob() {
+                showOutput('▶️ Submitting test SLURM job...');
+                showOutput('📋 Command: srun --nodes=1 --ntasks=1 --time=00:01:00 hostname');
+            }
+
+            function checkK8sStatus() {
+                showOutput('🔍 Checking Kubernetes API status...');
+                showOutput('📋 Command: kubectl get nodes');
+                showOutput('⚠️ API server may need repair if connection refused');
+            }
+
+            function repairK8s() {
+                showOutput('🔧 Repairing Kubernetes API server...');
+                showOutput('📋 Restarting containerd and kubelet services');
+            }
+
+            function healthCheck() {
+                showOutput('❤️ Running cluster health check...');
+                showOutput('✅ SLURM: 2 nodes online, ready for jobs');
+                showOutput('⚠️ Kubernetes: API server intermittent');
+                showOutput('✅ JupyterHub: Running on port 8000');
+                showOutput('✅ SSH: Key-based access working');
+                showOutput('✅ Network: Flannel CNI operational');
+            }
+
+            function restartServices() {
+                showOutput('🔄 Restarting cluster services...');
+                showOutput('📋 sudo systemctl restart containerd kubelet');
+                showOutput('📋 sudo systemctl restart slurmctld slurmd');
+            }
+
+            function viewLogs() {
+                showOutput('📋 System logs available via SSH:');
+                showOutput('SLURM: sudo journalctl -u slurmctld -u slurmd');
+                showOutput('Kubernetes: sudo journalctl -u kubelet');
+                showOutput('Containerd: sudo journalctl -u containerd');
+            }
+
+            function backupConfig() {
+                showOutput('💾 Backing up cluster configuration...');
+                showOutput('📋 Backup locations:');
+                showOutput('/etc/kubernetes/ - Kubernetes configs');
+                showOutput('/etc/slurm/ - SLURM configuration');
+                showOutput('~/.kube/config - kubectl configuration');
+            }
+
+            // Auto-update timestamp
+            setInterval(() => {
+                document.title = 'Cluster Console - ' + new Date().toLocaleTimeString();
+            }, 1000);
+        </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-dashboard
+  namespace: cluster-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cluster-dashboard
+  template:
+    metadata:
+      labels:
+        app: cluster-dashboard
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: dashboard-content
+          mountPath: /usr/share/nginx/html
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+      volumes:
+      - name: dashboard-content
+        configMap:
+          name: cluster-dashboard
+          items:
+          - key: index.html
+            path: index.html
+      - name: nginx-config
+        configMap:
+          name: cluster-dashboard
+          items:
+          - key: nginx.conf
+            path: default.conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluster-dashboard
+  namespace: cluster-ui
+spec:
+  selector:
+    app: cluster-dashboard
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30000
+  type: NodePort

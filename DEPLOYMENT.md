@@ -1,6 +1,6 @@
 # Kubernetes Cluster with SLURM and Jupyter - Deployment Guide
 
-This guide will walk you through setting up a Kubernetes cluster with SLURM and Jupyter on your old laptops.
+This guide covers the deployment process for the heterogeneous Kubernetes SLURM cluster supporting both x86 and ARM architectures.
 
 ## Table of Contents
 1. [Prerequisites](#prerequisites)
@@ -15,25 +15,45 @@ This guide will walk you through setting up a Kubernetes cluster with SLURM and 
 
 ## Prerequisites
 
-- 2 or more x86_64 laptops with Ubuntu 22.04 LTS installed
-- Minimum 4GB RAM per node (8GB+ recommended)
-- Minimum 2 CPU cores per node (4+ recommended)
-- Minimum 50GB free disk space per node
-- All nodes connected to the same network
-- SSH access between nodes
+### **Base Requirements**
+- Multiple nodes with Ubuntu 22.04+ LTS
+- SSH access configured between nodes
+- Ansible installed on control machine
 - Internet access on all nodes
+
+### **Supported Platforms**
+- **x86_64**: Traditional servers, laptops, workstations (4GB+ RAM, 2+ cores)
+- **ARM64**: Raspberry Pi 4/3, Android devices, NVIDIA Jetson (2GB+ RAM recommended)
+- **Mixed architectures**: Seamless integration of both platforms
 
 ## Hardware Requirements
 
-### Master Node
+### **x86 Nodes**
+#### Master Node
 - 2+ CPU cores
 - 4GB+ RAM
 - 50GB+ storage
 
-### Worker Nodes
+#### Worker Nodes
 - 2+ CPU cores
 - 4GB+ RAM
-- 100GB+ storage (more if storing container images)
+- 100GB+ storage
+
+### **ARM Nodes**
+#### Raspberry Pi 4
+- 4 ARM cores
+- 4GB+ RAM (8GB recommended)
+- 32GB+ SD card (Class 10)
+
+#### Android Devices
+- 4+ ARM cores
+- 3GB+ RAM
+- Termux or UserLAnd app
+
+#### NVIDIA Jetson
+- 4-8 ARM cores
+- 4GB+ RAM
+- GPU acceleration support
 
 ## Network Setup
 
@@ -167,13 +187,40 @@ Get service credentials:
 
 ## Maintenance
 
-### Adding a New Node
+### Adding Nodes
+
+#### **Adding x86 Nodes**
 1. Set up the new node following the [Initial Server Setup](#initial-server-setup) steps
 2. Add the node to `ansible/inventory.ini` under the appropriate groups
 3. Run the playbook:
    ```bash
    ansible-playbook -i ansible/inventory.ini ansible/site.yml --limit=<new-node-hostname>
    ```
+
+#### **Adding ARM Nodes**
+1. **Raspberry Pi**:
+   ```bash
+   ./scripts/add-arm-node.sh rpi4-8gb 192.168.1.100
+   ```
+
+2. **Android Device**:
+   ```bash
+   ./scripts/add-arm-node.sh android 192.168.1.102 u0_a123
+   ```
+
+3. **NVIDIA Jetson**:
+   ```bash
+   ./scripts/add-arm-node.sh jetson 192.168.1.104 nvidia
+   ```
+
+#### **ARM Node Discovery**
+```bash
+# Discover ARM devices on network
+./scripts/arm-node-discovery.sh discover
+
+# Monitor ARM node health
+./scripts/arm-node-discovery.sh monitor --continuous
+```
 
 ### Updating the Cluster
 1. Update the repository:
@@ -276,6 +323,8 @@ The cluster includes a private Docker registry accessible at:
 
 ### Submit SLURM Jobs
 Test with sample jobs:
+
+#### **x86 Jobs**
 ```bash
 # Copy job scripts to master node
 scp examples/slurm-jobs/*.sh user@master-node:~/
@@ -287,6 +336,30 @@ sbatch gpu-computation.sh
 
 # Monitor jobs
 squeue
+sinfo
+```
+
+#### **ARM Jobs**
+```bash
+# Generate ARM-optimized job examples
+./examples/slurm-jobs/arm-workloads.sh
+
+# Submit ARM-specific jobs
+sbatch --partition=arm_compute arm-hello-world.sh
+sbatch --partition=edge_compute rpi-temperature-monitor.sh
+sbatch mobile-device-job.sh
+
+# Monitor ARM partitions
+sinfo -p arm_compute
+sinfo -p edge_compute
+```
+
+#### **Mixed Architecture Jobs**
+```bash
+# Submit jobs that can run on any architecture
+sbatch multi-arch-parallel.sh
+
+# View all partitions
 sinfo
 ```
 
