@@ -12,48 +12,46 @@ module.exports = {
       { text: 'Deployment', link: '/DEPLOYMENT.html' },
       { text: 'GitHub', link: 'https://github.com/st7ma784/OddJobCluster' }
     ],
-    sidebar: {
-      '/': [
-        {
-          title: 'Getting Started',
-          collapsable: false,
-          children: [
-            ['/', 'Introduction'],
-            ['/QUICK_INSTALL', 'Quick Install'],
-            ['/DEPLOYMENT', 'Full Deployment'],
-            ['/RAPID_DEPLOYMENT', 'Node Scaling']
-          ]
-        },
-        {
-          title: 'User Guides',
-          collapsable: false,
-          children: [
-            ['/guides/slurm-jobs', 'SLURM Jobs'],
-            ['/guides/jupyter', 'JupyterHub'],
-            ['/guides/monitoring', 'Monitoring'],
-            ['/guides/user-management', 'User Management']
-          ]
-        },
-        {
-          title: 'Administration',
-          collapsable: false,
-          children: [
-            ['/guides/backup-restore', 'Backup & Restore'],
-            ['/guides/ssl-setup', 'SSL Configuration'],
-            ['/guides/troubleshooting-network', 'Network Troubleshooting']
-          ]
-        },
-        {
-          title: 'Reference',
-          collapsable: false,
-          children: [
-            ['/PROJECT_SUMMARY', 'Project Summary'],
-            ['/api/slurm', 'SLURM API'],
-            ['/api/kubernetes', 'Kubernetes API']
-          ]
-        }
-      ]
-    },
+    sidebar: [
+      {
+        title: 'Getting Started',
+        collapsable: false,
+        children: [
+          '/',
+          '/QUICK_INSTALL',
+          '/DEPLOYMENT',
+          '/RAPID_DEPLOYMENT'
+        ]
+      },
+      {
+        title: 'User Guides',
+        collapsable: false,
+        children: [
+          '/guides/slurm-jobs',
+          '/guides/jupyter',
+          '/guides/monitoring',
+          '/guides/user-management'
+        ]
+      },
+      {
+        title: 'Administration',
+        collapsable: false,
+        children: [
+          '/guides/backup-restore',
+          '/guides/ssl-setup',
+          '/guides/troubleshooting-network'
+        ]
+      },
+      {
+        title: 'Reference',
+        collapsable: false,
+        children: [
+          '/PROJECT_SUMMARY',
+          '/api/slurm',
+          '/api/kubernetes'
+        ]
+      }
+    ],
     repo: 'st7ma784/OddJobCluster',
     repoLabel: 'GitHub',
     docsDir: 'docs',
