@@ -1,5 +1,96 @@
+# Dependencies
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Environment variables
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# VuePress
 docs/.vuepress/dist/
 docs/.vuepress/public/
 docs/.vuepress/cache/
+docs/.vuepress/.temp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Ansible
+*.retry
+.vault_pass
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Portfolio output
+portfolio-output/
+portfolio-status.json
+
+# Backup files
+*.backup
+*.bak
