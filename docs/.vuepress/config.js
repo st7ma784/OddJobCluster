@@ -40,7 +40,7 @@ module.exports = {
           children: [
             ['/guides/backup-restore', 'Backup & Restore'],
             ['/guides/ssl-setup', 'SSL Configuration'],
-            ['/guides/troubleshooting-network', 'Troubleshooting']
+            ['/guides/troubleshooting-network', 'Network Troubleshooting']
           ]
         },
         {
