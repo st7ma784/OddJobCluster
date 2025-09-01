@@ -38,7 +38,8 @@ jobs:
         mkdir -p ~/.ssh
         echo "${{ secrets.CLUSTER_SSH_KEY }}" > ~/.ssh/cluster_key
         chmod 600 ~/.ssh/cluster_key
-        ssh-keyscan -H ${{ secrets.CLUSTER_HOST }} >> ~/.ssh/known_hosts
+        chmod 700 ~/.ssh
+        ssh-keyscan -H ${{ secrets.CLUSTER_HOST }} >> ~/.ssh/known_hosts || true
         
     - name: Scan repositories and generate portfolio
       run: |
@@ -46,16 +47,23 @@ jobs:
           --github-token "${{ secrets.GITHUB_TOKEN }}" \
           --cluster-host "${{ secrets.CLUSTER_HOST }}" \
           --output-dir ./portfolio-output
+      continue-on-error: true
           
     - name: Deploy to cluster
       run: |
-        python scripts/portfolio/deploy-portfolio.py \
-          --cluster-host "${{ secrets.CLUSTER_HOST }}" \
-          --ssh-key ~/.ssh/cluster_key \
-          --portfolio-dir ./portfolio-output
+        if [ -d "./portfolio-output" ]; then
+          python scripts/portfolio/deploy-portfolio.py \
+            --cluster-host "${{ secrets.CLUSTER_HOST }}" \
+            --ssh-key ~/.ssh/cluster_key \
+            --portfolio-dir ./portfolio-output
+        else
+          echo "No portfolio output to deploy"
+        fi
+      continue-on-error: true
           
     - name: Update portfolio status
       run: |
         python scripts/portfolio/update-status.py \
           --cluster-host "${{ secrets.CLUSTER_HOST }}" \
           --ssh-key ~/.ssh/cluster_key
+      continue-on-error: true

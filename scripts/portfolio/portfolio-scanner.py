@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 import re
 import logging
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -372,7 +373,7 @@ def main():
     # Save portfolio data
     portfolio_data = {
         'projects': [asdict(p) for p in projects],
-        'scan_timestamp': str(pd.Timestamp.now()),
+        'scan_timestamp': datetime.now().isoformat(),
         'total_projects': len(projects),
         'projects_with_docker': len([p for p in projects if p.has_docker_compose]),
         'projects_with_web_interface': len([p for p in projects if p.has_web_interface]),

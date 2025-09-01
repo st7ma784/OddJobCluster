@@ -39,7 +39,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install -g @vuepress/cli vuepress
           npm install
 
       - name: Build documentation
@@ -128,7 +127,7 @@ jobs:
           cp PROJECT_SUMMARY.md docs/
 
           # Build with VuePress
-          vuepress build docs
+          npx vuepress build docs
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
