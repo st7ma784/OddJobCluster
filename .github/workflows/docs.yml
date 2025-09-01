@@ -43,91 +43,13 @@ jobs:
 
       - name: Build documentation
         run: |
-          # Create VuePress config
-          mkdir -p docs/.vuepress
-          cat > docs/.vuepress/config.js << 'EOF'
-          module.exports = {
-            title: 'Kubernetes Cluster with SLURM and Jupyter',
-            description: 'Production-ready HPC cluster automation',
-            base: '/kubernetes-slurm-cluster/',
-            head: [
-              ['link', { rel: 'icon', href: '/favicon.ico' }]
-            ],
-            themeConfig: {
-              nav: [
-                { text: 'Home', link: '/' },
-                { text: 'Quick Start', link: '/QUICK_INSTALL.html' },
-                { text: 'Deployment', link: '/DEPLOYMENT.html' },
-                { text: 'GitHub', link: 'https://github.com/yourusername/kubernetes-slurm-cluster' }
-              ],
-              sidebar: {
-                '/': [
-                  {
-                    title: 'Getting Started',
-                    collapsable: false,
-                    children: [
-                      ['/', 'Introduction'],
-                      ['/QUICK_INSTALL', 'Quick Install'],
-                      ['/DEPLOYMENT', 'Full Deployment'],
-                      ['/RAPID_DEPLOYMENT', 'Node Scaling']
-                    ]
-                  },
-                  {
-                    title: 'User Guides',
-                    collapsable: false,
-                    children: [
-                      ['/guides/slurm-jobs', 'SLURM Jobs'],
-                      ['/guides/jupyter', 'JupyterHub'],
-                      ['/guides/monitoring', 'Monitoring'],
-                      ['/guides/user-management', 'User Management']
-                    ]
-                  },
-                  {
-                    title: 'Administration',
-                    collapsable: false,
-                    children: [
-                      ['/guides/backup-restore', 'Backup & Restore'],
-                      ['/guides/ssl-setup', 'SSL Configuration'],
-                      ['/guides/troubleshooting', 'Troubleshooting']
-                    ]
-                  },
-                  {
-                    title: 'Reference',
-                    collapsable: false,
-                    children: [
-                      ['/PROJECT_SUMMARY', 'Project Summary'],
-                      ['/api/slurm', 'SLURM API'],
-                      ['/api/kubernetes', 'Kubernetes API']
-                    ]
-                  }
-                ]
-              },
-              repo: 'yourusername/kubernetes-slurm-cluster',
-              repoLabel: 'GitHub',
-              docsDir: 'docs',
-              editLinks: true,
-              editLinkText: 'Edit this page on GitHub'
-            },
-            plugins: [
-              '@vuepress/plugin-back-to-top',
-              '@vuepress/plugin-medium-zoom',
-              [
-                '@vuepress/plugin-search',
-                {
-                  searchMaxSuggestions: 10
-                }
-              ]
-            ]
-          }
-          EOF
-
           # Copy main documentation files to docs directory
           cp README.md docs/
           cp DEPLOYMENT.md docs/
           cp PROJECT_SUMMARY.md docs/
 
-          # Build with VuePress
-          npx vuepress build docs
+          # Build with simple static generator
+          npm run docs:build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

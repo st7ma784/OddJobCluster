@@ -3,14 +3,13 @@
   "version": "1.0.0",
   "description": "Documentation for Kubernetes Cluster with SLURM and Jupyter",
   "scripts": {
-    "docs:dev": "vuepress dev docs",
-    "docs:build": "vuepress build docs"
+    "docs:dev": "docsify serve docs",
+    "docs:build": "node build-docs.js"
   },
   "devDependencies": {
-    "vuepress": "^1.9.7",
-    "@vuepress/plugin-back-to-top": "^1.9.7",
-    "@vuepress/plugin-medium-zoom": "^1.9.7",
-    "@vuepress/plugin-search": "^1.9.7"
+    "docsify-cli": "^4.4.4",
+    "marked": "^9.1.2",
+    "fs-extra": "^11.1.1"
   },
   "keywords": [
     "kubernetes",

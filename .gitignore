@@ -94,3 +94,17 @@ portfolio-status.json
 # Backup files
 *.backup
 *.bak
+
+# Android/Gradle
+android-cluster-node/.gradle/
+android-cluster-node/build/
+android-cluster-node/app/build/
+android-cluster-node/gradle/wrapper/gradle-wrapper.jar
+android-cluster-node/local.properties
+*.zip
+*.apk
+
+# Large binaries
+*.bin
+*.so
+*.dylib
