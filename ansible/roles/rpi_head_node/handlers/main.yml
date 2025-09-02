@@ -1,0 +1,15 @@
+---
+# handlers file for rpi_head_node
+- name: Reboot RPi
+  reboot:
+    msg: "Rebooting RPi to apply camera changes"
+    connect_timeout: 5
+    reboot_timeout: 600
+    pre_reboot_delay: 0
+    post_reboot_delay: 30
+    test_command: uptime
+
+- name: Restart containerd
+  service:
+    name: containerd
+    state: restarted

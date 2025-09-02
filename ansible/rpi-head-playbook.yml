@@ -1,0 +1,6 @@
+---
+- name: Configure Raspberry Pi as Kubernetes Head Node
+  hosts: rpi_head # Make sure you have a 'rpi_head' group in your inventory
+  become: yes
+  roles:
+    - rpi_head_node

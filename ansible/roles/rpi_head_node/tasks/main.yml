@@ -1,0 +1,82 @@
+---
+# tasks file for rpi_head_node
+
+- name: Install required packages
+  apt:
+    name:
+      - containerd
+      - kubelet
+      - kubeadm
+      - kubectl
+      - v4l-utils
+    state: present
+    update_cache: yes
+
+- name: Hold Kubernetes packages
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: Enable camera interface
+  command: raspi-config nonint do_camera 0
+  changed_when: true
+  notify: Reboot RPi
+
+- name: Add user to video group
+  user:
+    name: "{{ ansible_user }}"
+    groups: video
+    append: yes
+
+- name: Create containerd config directory
+  file:
+    path: /etc/containerd
+    state: directory
+
+- name: Configure containerd for RPi camera access
+  template:
+    src: containerd-config-rpi.toml.j2
+    dest: /etc/containerd/config.toml
+  notify: Restart containerd
+
+- name: Initialize the Kubernetes cluster
+  command: kubeadm init --pod-network-cidr=10.244.0.0/16
+  args:
+    creates: /etc/kubernetes/admin.conf
+  register: kubeadm_init
+
+- name: Store join command
+  set_fact:
+    join_command: "{{ kubeadm_init.stdout_lines | select('match', '^kubeadm join') | list | last }}"
+
+- name: Display join command
+  debug:
+    msg: "Run this command on worker nodes to join the cluster: {{ join_command }}"
+
+- name: Create .kube directory
+  file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+
+- name: Copy admin.conf to user's kube config
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    remote_src: yes
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+
+- name: Apply Flannel CNI
+  command: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+  become: yes
+  become_user: "{{ ansible_user }}"
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+  changed_when: true
