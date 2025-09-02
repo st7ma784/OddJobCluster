@@ -24,6 +24,22 @@ class ClusterNodeService : Service() {
         const val CHANNEL_ID = "ClusterNodeService"
         const val NOTIFICATION_ID = 1
         private const val TAG = "ClusterNodeService"
+        
+        @JvmStatic
+        var isServiceRunning = false
+        
+        @JvmStatic
+        var connectionStatus = "Disconnected"
+        
+        @JvmStatic
+        var tasksProcessed = 0
+        
+        private var startTime = 0L
+        
+        @JvmStatic
+        fun getUptime(): Long {
+            return if (startTime > 0) System.currentTimeMillis() - startTime else 0
+        }
     }
     
     override fun onCreate() {
@@ -38,8 +54,12 @@ class ClusterNodeService : Service() {
         )
         wakeLock.acquire()
         
-        computeEngine = ComputeEngine()
+        computeEngine = ComputeEngine(this)
         client = OkHttpClient()
+        
+        isServiceRunning = true
+        startTime = System.currentTimeMillis()
+        connectionStatus = "Connecting..."
         
         startForeground(NOTIFICATION_ID, createNotification("Connecting to cluster..."))
         connectToCluster()
@@ -81,19 +101,27 @@ class ClusterNodeService : Service() {
     
     private fun connectToCluster() {
         val clusterUrl = getClusterUrl()
+        Log.i(TAG, "Connecting to cluster at: $clusterUrl")
         val request = Request.Builder()
-            .url("ws://$clusterUrl/android-nodes")
+            .url(clusterUrl)
+            .addHeader("Connection", "Upgrade")
+            .addHeader("Upgrade", "websocket")
+            .addHeader("Sec-WebSocket-Version", "13")
+            .addHeader("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
             .build()
             
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "Connected to cluster")
+                connectionStatus = "Connected"
                 updateNotification("Connected - Ready for tasks")
                 
                 // Send node registration
-                val registration = NodeRegistration(
-                    deviceInfo = getDeviceInfo(),
-                    capabilities = getCapabilities()
+                val registration = mapOf(
+                    "type" to "register",
+                    "node_id" to android.os.Build.MODEL.replace(" ", "_").lowercase(),
+                    "device_info" to getDeviceInfo(),
+                    "capabilities" to getCapabilities()
                 )
                 webSocket.send(Gson().toJson(registration))
             }
@@ -104,7 +132,8 @@ class ClusterNodeService : Service() {
             }
             
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket failure", t)
+                Log.e(TAG, "WebSocket failure: ${t.message}", t)
+                connectionStatus = "Failed: ${t.message}"
                 updateNotification("Connection failed - Retrying...")
                 
                 // Retry connection after delay
@@ -123,30 +152,91 @@ class ClusterNodeService : Service() {
     
     private fun handleClusterMessage(message: String) {
         try {
-            val task = Gson().fromJson(message, ComputeTask::class.java)
+            val messageObj = Gson().fromJson(message, Map::class.java) as Map<String, Any>
+            val messageType = messageObj["type"] as? String
             
-            when (task.type) {
-                "compute" -> processComputeTask(task)
-                "health_check" -> sendHealthStatus()
-                "benchmark" -> runBenchmark(task)
-                else -> Log.w(TAG, "Unknown task type: ${task.type}")
+            when (messageType) {
+                "welcome" -> {
+                    Log.i(TAG, "Received welcome message")
+                    // Send capabilities and request tasks
+                    sendCapabilities()
+                    requestTask()
+                }
+                "task_assignment" -> {
+                    val taskData = messageObj["data"] as? Map<String, Any> ?: emptyMap()
+                    val task = ComputeTask(
+                        id = messageObj["task_id"] as? String ?: "",
+                        type = messageObj["task_type"] as? String ?: "",
+                        data = taskData,
+                        priority = when (val priority = messageObj["priority"]) {
+                            is Number -> priority.toInt()
+                            else -> 1
+                        }
+                    )
+                    Log.d(TAG, "Received task assignment: ${task.type}")
+                    processComputeTask(task)
+                }
+                "no_tasks" -> {
+                    Log.i(TAG, "No tasks available")
+                    connectionStatus = "Connected - No tasks"
+                    // Request again after delay
+                    android.os.Handler(mainLooper).postDelayed({
+                        requestTask()
+                    }, 10000)
+                }
+                "task_ack" -> {
+                    Log.i(TAG, "Task acknowledgment received")
+                    tasksProcessed++
+                    requestTask() // Request next task
+                }
+                "heartbeat_ack" -> {
+                    Log.d(TAG, "Heartbeat acknowledged")
+                }
+                else -> Log.w(TAG, "Unknown message type: $messageType")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error handling message", e)
-            sendError("Failed to process task: ${e.message}")
+            Log.e(TAG, "Error handling message: $message", e)
+            sendError("Failed to process message: ${e.message}")
         }
+    }
+    
+    private fun sendCapabilities() {
+        val capabilities = mapOf(
+            "type" to "capabilities",
+            "capabilities" to listOf(
+                "shell_scripts",
+                "python_scripts", 
+                "arm_compute",
+                "kubernetes_jobs",
+                "slurm_jobs",
+                "matrix_operations",
+                "file_processing",
+                "network_tasks"
+            )
+        )
+        webSocket.send(Gson().toJson(capabilities))
+    }
+    
+    private fun requestTask() {
+        val request = mapOf("type" to "request_task")
+        webSocket.send(Gson().toJson(request))
     }
     
     private fun processComputeTask(task: ComputeTask) {
         updateNotification("Processing task ${task.id}")
+        Log.i(TAG, "🚀 Starting task ${task.id} (${task.type})")
         
         executor.submit {
             try {
+                val startTime = System.currentTimeMillis()
                 val result = computeEngine.processTask(task)
+                val duration = System.currentTimeMillis() - startTime
+                
+                Log.i(TAG, "✅ Task ${task.id} (${task.type}) completed in ${duration}ms")
                 sendTaskResult(task.id, result)
                 updateNotification("Connected - Ready for tasks")
             } catch (e: Exception) {
-                Log.e(TAG, "Task processing failed", e)
+                Log.e(TAG, "❌ Task ${task.id} (${task.type}) failed: ${e.message}", e)
                 sendTaskError(task.id, e.message ?: "Unknown error")
             }
         }
@@ -173,21 +263,26 @@ class ClusterNodeService : Service() {
     }
     
     private fun sendTaskResult(taskId: String, result: Any) {
-        val response = TaskResponse(
-            taskId = taskId,
-            status = "completed",
-            result = result,
-            timestamp = System.currentTimeMillis()
+        Log.i(TAG, "✅ Task $taskId completed successfully")
+        val response = mapOf(
+            "type" to "task_result",
+            "task_id" to taskId,
+            "status" to "completed",
+            "result" to result,
+            "success" to true,
+            "timestamp" to System.currentTimeMillis()
         )
         webSocket.send(Gson().toJson(response))
     }
     
     private fun sendTaskError(taskId: String, error: String) {
-        val response = TaskResponse(
-            taskId = taskId,
-            status = "error",
-            error = error,
-            timestamp = System.currentTimeMillis()
+        val response = mapOf(
+            "type" to "task_result",
+            "task_id" to taskId,
+            "status" to "error",
+            "error" to error,
+            "success" to false,
+            "timestamp" to System.currentTimeMillis()
         )
         webSocket.send(Gson().toJson(response))
     }
@@ -201,9 +296,8 @@ class ClusterNodeService : Service() {
     }
     
     private fun getClusterUrl(): String {
-        // Try to discover cluster or use configured IP
-        val prefs = getSharedPreferences("cluster_config", Context.MODE_PRIVATE)
-        return prefs.getString("cluster_url", "192.168.5.57:8080") ?: "192.168.5.57:8080"
+        val prefs = getSharedPreferences("cluster_node_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("cluster_url", "ws://192.168.5.55:8765") ?: "ws://192.168.5.55:8765"
     }
     
     private fun getDeviceInfo(): DeviceInfo {

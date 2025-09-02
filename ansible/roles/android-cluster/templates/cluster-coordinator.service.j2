@@ -1,0 +1,15 @@
+[Unit]
+Description=Android Cluster Coordinator
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{ cluster_coordinator_path | default('/opt/cluster-coordinator') }}
+ExecStart=/usr/bin/python3 run_server.py
+Restart=always
+RestartSec=10
+Environment=PYTHONPATH={{ cluster_coordinator_path | default('/opt/cluster-coordinator') }}
+
+[Install]
+WantedBy=multi-user.target

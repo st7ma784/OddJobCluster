@@ -1,0 +1,140 @@
+---
+# Android Cluster Node Setup
+- name: Install required packages for Android cluster
+  package:
+    name:
+      - adb
+      - fastboot
+      - wget
+      - curl
+      - unzip
+    state: present
+  become: yes
+
+- name: Create Android SDK directory
+  file:
+    path: "{{ android_sdk_path | default('/opt/android-sdk') }}"
+    state: directory
+    mode: '0755'
+  become: yes
+
+- name: Download Android SDK command line tools
+  get_url:
+    url: "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
+    dest: "/tmp/android-sdk-tools.zip"
+    mode: '0644'
+
+- name: Extract Android SDK tools
+  unarchive:
+    src: "/tmp/android-sdk-tools.zip"
+    dest: "{{ android_sdk_path | default('/opt/android-sdk') }}"
+    remote_src: yes
+  become: yes
+
+- name: Install kubectl for Kubernetes integration
+  get_url:
+    url: "https://dl.k8s.io/release/v1.28.0/bin/linux/arm64/kubectl"
+    dest: "/usr/local/bin/kubectl"
+    mode: '0755'
+  become: yes
+  when: ansible_architecture == "aarch64"
+
+- name: Install kubectl for x86_64
+  get_url:
+    url: "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+    dest: "/usr/local/bin/kubectl"
+    mode: '0755'
+  become: yes
+  when: ansible_architecture == "x86_64"
+
+- name: Install SLURM client tools
+  package:
+    name:
+      - slurm-client
+      - slurm-wlm-basic-plugins
+    state: present
+  become: yes
+  ignore_errors: yes
+
+- name: Create cluster coordinator directory
+  file:
+    path: "{{ cluster_coordinator_path | default('/opt/cluster-coordinator') }}"
+    state: directory
+    mode: '0755'
+  become: yes
+
+- name: Copy cluster coordinator files
+  copy:
+    src: "{{ item }}"
+    dest: "{{ cluster_coordinator_path | default('/opt/cluster-coordinator') }}/{{ item | basename }}"
+    mode: '0755'
+  with_fileglob:
+    - "../../../cluster-coordinator/*"
+  become: yes
+
+- name: Install Python dependencies for cluster coordinator
+  pip:
+    requirements: "{{ cluster_coordinator_path | default('/opt/cluster-coordinator') }}/requirements.txt"
+    state: present
+  become: yes
+
+- name: Create systemd service for cluster coordinator
+  template:
+    src: cluster-coordinator.service.j2
+    dest: /etc/systemd/system/cluster-coordinator.service
+    mode: '0644'
+  become: yes
+  notify: restart cluster coordinator
+
+- name: Enable and start cluster coordinator service
+  systemd:
+    name: cluster-coordinator
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  become: yes
+
+- name: Build Android APK
+  shell: |
+    cd {{ playbook_dir }}/../android-cluster-node
+    ./gradlew assembleRelease
+  delegate_to: localhost
+  run_once: true
+
+- name: Check if Android device is connected
+  shell: adb devices | grep -v "List of devices" | grep -E "device$|unauthorized$"
+  register: android_devices
+  failed_when: false
+  changed_when: false
+
+- name: Deploy APK to Android devices
+  shell: |
+    adb -s {{ item.split()[0] }} install -r {{ playbook_dir }}/../android-cluster-node/app/build/outputs/apk/release/app-release.apk
+  with_items: "{{ android_devices.stdout_lines }}"
+  when: android_devices.stdout_lines | length > 0
+
+- name: Configure Android device for cluster
+  shell: |
+    adb -s {{ item.split()[0] }} shell am start -n com.cluster.node/.MainActivity --es cluster_url "ws://{{ cluster_coordinator_host | default(ansible_default_ipv4.address) }}:8765"
+  with_items: "{{ android_devices.stdout_lines }}"
+  when: android_devices.stdout_lines | length > 0
+
+- name: Install Termux on Android (if not present)
+  shell: |
+    adb -s {{ item.split()[0] }} install -r https://github.com/termux/termux-app/releases/latest/download/termux-app_v0.118.0+github-debug_arm64-v8a.apk
+  with_items: "{{ android_devices.stdout_lines }}"
+  when: android_devices.stdout_lines | length > 0
+  ignore_errors: yes
+
+- name: Setup Termux environment for kubectl and SLURM
+  shell: |
+    adb -s {{ item.split()[0] }} shell am start -n com.termux/.app.TermuxActivity
+    sleep 2
+    adb -s {{ item.split()[0] }} shell input text "pkg update && pkg install -y wget curl python nodejs"
+    adb -s {{ item.split()[0] }} shell input keyevent 66
+    sleep 5
+    adb -s {{ item.split()[0] }} shell input text "wget https://dl.k8s.io/release/v1.28.0/bin/linux/arm64/kubectl -O \$PREFIX/bin/kubectl && chmod +x \$PREFIX/bin/kubectl"
+    adb -s {{ item.split()[0] }} shell input keyevent 66
+  with_items: "{{ android_devices.stdout_lines }}"
+  when: android_devices.stdout_lines | length > 0
+  ignore_errors: yes

@@ -118,11 +118,25 @@ sbatch --partition=mixed_compute ./examples/slurm-jobs/heterogeneous-job.sh
 
 ## 📚 Documentation
 
+### Quick Links
+
+### Core Documentation
+- [🏗️ Architecture Overview](ARCHITECTURE.md) - System design and tech stack
+- [🚀 Deployment Guide](DEPLOYMENT.md) - Complete deployment instructions
+- [📱 Android Deployment](guides/android-deployment.md) - Android-specific setup
+- [📚 API Reference](api/android-cluster.md) - REST API documentation
+
 ### Setup Guides
-- `DEPLOYMENT.md` - Complete deployment guide
-- `docs/ARM-QUICK-REFERENCE.md` - ARM platform setup
-- `docs/guides/android-integration-methods.md` - Android integration
-- `docs/guides/arm-platform-setup.md` - ARM platform details
+- [⚡ Quick Install](QUICK_INSTALL.md) - Fast cluster setup
+- [🔧 ARM Platform Setup](guides/arm-platform-setup.md) - ARM node configuration
+- [📱 Android Integration](guides/android-integration-methods.md) - Mobile device integration
+- [🔐 User Management](guides/user-management.md) - Access control setup
+
+### Operations
+- [📊 Monitoring](guides/monitoring.md) - Cluster monitoring setup
+- [🔒 SSL Setup](guides/ssl-setup.md) - Security configuration
+- [💾 Backup & Restore](guides/backup-restore.md) - Data protection
+- [🔧 Troubleshooting](guides/troubleshooting-network.md) - Problem resolution
 
 ### Scripts Reference
 - `scripts/deploy-complete-cluster.sh` - Full cluster deployment

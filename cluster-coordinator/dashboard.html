@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android Cluster Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .dashboard {
+            padding: 30px;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .status-card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            border-left: 5px solid #3498db;
+        }
+        
+        .status-card.kubernetes {
+            border-left-color: #326ce5;
+        }
+        
+        .status-card.slurm {
+            border-left-color: #e74c3c;
+        }
+        
+        .status-card.tasks {
+            border-left-color: #f39c12;
+        }
+        
+        .status-card h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .status-available {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-unavailable {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .metric:last-child {
+            border-bottom: none;
+        }
+        
+        .metric-value {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .nodes-section {
+            margin-top: 30px;
+        }
+        
+        .nodes-section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+        
+        .nodes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        
+        .node-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            border: 2px solid #ecf0f1;
+        }
+        
+        .node-card.connected {
+            border-color: #27ae60;
+        }
+        
+        .node-card.disconnected {
+            border-color: #e74c3c;
+        }
+        
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .node-id {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 1.1em;
+        }
+        
+        .node-status {
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .node-status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .node-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .cluster-badges {
+            display: flex;
+            gap: 8px;
+            margin: 10px 0;
+        }
+        
+        .cluster-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        
+        .cluster-badge.kubernetes {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+        
+        .cluster-badge.slurm {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 15px 25px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .status-card .refresh-btn {
+            position: static;
+            padding: 8px 16px;
+            font-size: 0.9em;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        
+        .refresh-btn:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(52, 152, 219, 0.4);
+        }
+        
+        .deploy-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .deploy-btn:hover {
+            background: #c0392b;
+            transform: translateY(-1px);
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto;
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+        
+        .modal h3 {
+            margin-top: 0;
+            color: #2c3e50;
+            text-align: center;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .form-group select,
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ecf0f1;
+            border-radius: 5px;
+            font-size: 1em;
+            box-sizing: border-box;
+        }
+        
+        .form-group select:focus,
+        .form-group input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 25px;
+        }
+        
+        .modal-buttons button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+        
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+        
+        .deployment-result {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Android Cluster Dashboard</h1>
+            <p>Real-time monitoring of Android compute nodes and cluster integration</p>
+        </div>
+        
+        <div class="dashboard">
+            <div id="loading" class="loading">
+                <div class="pulse">🔄 Loading cluster status...</div>
+            </div>
+            
+            <div id="error" class="error" style="display: none;">
+                ❌ Failed to connect to cluster coordinator
+            </div>
+            
+            <div id="content" style="display: none;">
+                <div class="status-grid">
+                    <div class="status-card kubernetes">
+                        <h3>🚢 Kubernetes Cluster</h3>
+                        <div id="k8s-status" class="status-indicator status-unavailable">
+                            ❌ Unavailable
+                        </div>
+                        <div class="metric">
+                            <span>Registered Nodes:</span>
+                            <span id="k8s-nodes" class="metric-value">0</span>
+                        </div>
+                        <div class="metric">
+                            <span>Total Pods:</span>
+                            <span id="k8s-pods" class="metric-value">0</span>
+                        </div>
+                        <button class="refresh-btn" onclick="showApkDeployment()">📱 Deploy APK</button>
+                    </div>
+                    
+                    <div class="status-card slurm">
+                        <h3>⚡ SLURM Cluster</h3>
+                        <div id="slurm-status" class="status-indicator status-unavailable">
+                            ❌ Unavailable
+                        </div>
+                        <div id="munge-status" class="status-indicator status-unavailable" style="margin-top: 8px;">
+                            🔐 MUNGE: ❌ Unavailable
+                        </div>
+                        <div class="metric">
+                            <span>Registered Nodes:</span>
+                            <span id="slurm-nodes" class="metric-value">0</span>
+                        </div>
+                        <div class="metric">
+                            <span>Total Jobs:</span>
+                            <span id="slurm-jobs" class="metric-value">0</span>
+                        </div>
+                    </div>
+                    
+                    <div class="status-card tasks">
+                        <h3>📋 Task Queue</h3>
+                        <div class="metric">
+                            <span>Total Tasks:</span>
+                            <span id="total-tasks" class="metric-value">0</span>
+                        </div>
+                        <div class="metric">
+                            <span>Pending:</span>
+                            <span id="pending-tasks" class="metric-value">0</span>
+                        </div>
+                        <div class="metric">
+                            <span>Completed:</span>
+                            <span id="completed-tasks" class="metric-value">0</span>
+                        </div>
+                        <button class="refresh-btn" onclick="showTaskSubmission()" style="position: static; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">➕ Submit Task</button>
+                    </div>
+                </div>
+                
+                <div class="nodes-section">
+                    <h2>📱 Android Nodes</h2>
+                    <div id="android-nodes-grid" class="nodes-grid">
+                        <!-- Android nodes will be populated here -->
+                    </div>
+                </div>
+                
+                <div class="nodes-section">
+                    <h2>☸️ Kubernetes Nodes</h2>
+                    <div id="k8s-nodes-grid" class="nodes-grid">
+                        <!-- Kubernetes nodes will be populated here -->
+                    </div>
+                </div>
+                
+                <div class="nodes-section">
+                    <h2>⚡ SLURM Nodes</h2>
+                    <div id="slurm-nodes-grid" class="nodes-grid">
+                        <!-- SLURM nodes will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+    
+    <!-- Task Submission Modal -->
+    <div id="task-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 15px; min-width: 400px; max-width: 500px;">
+            <h3 style="margin-bottom: 20px; color: #2c3e50;">📋 Submit Custom Task</h3>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Task Type:</label>
+                <select id="task-type" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="prime_calculation">Prime Calculation</option>
+                    <option value="matrix_multiplication">Matrix Multiplication</option>
+                    <option value="hash_computation">Hash Computation</option>
+                    <option value="custom">Custom Task</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Task Data (JSON):</label>
+                <textarea id="task-data" rows="4" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;" placeholder='{"start": 1, "end": 10000}'></textarea>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Priority:</label>
+                <select id="task-priority" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="1">Low (1)</option>
+                    <option value="2" selected>Medium (2)</option>
+                    <option value="3">High (3)</option>
+                </select>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button onclick="hideTaskSubmission()" style="padding: 10px 20px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">Cancel</button>
+                <button onclick="submitCustomTask()" style="padding: 10px 20px; border: none; background: #3498db; color: white; border-radius: 4px; cursor: pointer;">Submit Task</button>
+            </div>
+            
+            <div id="submission-result" style="margin-top: 15px; padding: 10px; border-radius: 4px; display: none;"></div>
+        </div>
+    </div>
+    
+    <!-- APK Deployment Modal -->
+    <div id="apk-modal" class="modal">
+        <div class="modal-content">
+            <h3>📱 Deploy APK to Android Devices</h3>
+            
+            <div class="form-group">
+                <label for="deploy-target-node">Target Node:</label>
+                <select id="deploy-target-node">
+                    <option value="any">Any Available Node</option>
+                    <option value="arm64">ARM64 Nodes Only</option>
+                    <option value="x86_64">x86_64 Nodes Only</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="deploy-apk-url">APK URL (optional):</label>
+                <input type="url" id="deploy-apk-url" placeholder="https://example.com/app-debug.apk" />
+                <small style="color: #7f8c8d; margin-top: 5px; display: block;">Leave empty to use pre-built APK from build artifacts</small>
+            </div>
+            
+            <div class="modal-buttons">
+                <button type="button" class="btn-secondary" onclick="hideApkDeployment()">Cancel</button>
+                <button type="button" class="btn-primary" onclick="deployApk()">🚀 Deploy APK</button>
+            </div>
+            
+            <div id="apk-deployment-result" class="deployment-result"></div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:8766'; // HTTP API endpoint
+        
+        async function fetchClusterStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/status`);
+                if (!response.ok) throw new Error('API not available');
+                return await response.json();
+            } catch (error) {
+                console.error('Failed to fetch cluster status:', error);
+                throw error;
+            }
+        }
+        
+        function updateClusterStatus(data) {
+            // Update Kubernetes status
+            const k8sStatus = document.getElementById('k8s-status');
+            const k8sNodes = document.getElementById('k8s-nodes');
+            
+            if (data.clusters.kubernetes.available) {
+                k8sStatus.className = 'status-indicator status-available';
+                k8sStatus.innerHTML = '✅ Available';
+            } else {
+                k8sStatus.className = 'status-indicator status-unavailable';
+                k8sStatus.innerHTML = '❌ Unavailable';
+            }
+            k8sNodes.textContent = `${data.clusters.kubernetes.registered_nodes} Android / ${data.clusters.kubernetes.total_nodes} Total`;
+            
+            // Update total pods count
+            const totalPods = data.kubernetes_nodes.reduce((sum, node) => sum + node.pods, 0);
+            document.getElementById('k8s-pods').textContent = totalPods;
+            
+            // Update SLURM status
+            const slurmStatus = document.getElementById('slurm-status');
+            const mungeStatus = document.getElementById('munge-status');
+            const slurmNodes = document.getElementById('slurm-nodes');
+            
+            if (data.clusters.slurm.available) {
+                slurmStatus.className = 'status-indicator status-available';
+                slurmStatus.innerHTML = '✅ Available';
+            } else {
+                slurmStatus.className = 'status-indicator status-unavailable';
+                slurmStatus.innerHTML = '❌ Unavailable';
+            }
+            
+            // Update MUNGE status
+            if (data.clusters.slurm.munge_available) {
+                mungeStatus.className = 'status-indicator status-available';
+                mungeStatus.innerHTML = '🔐 MUNGE: ✅ Active';
+            } else {
+                mungeStatus.className = 'status-indicator status-unavailable';
+                mungeStatus.innerHTML = '🔐 MUNGE: ❌ Unavailable';
+            }
+            
+            slurmNodes.textContent = `${data.clusters.slurm.registered_nodes} Android / ${data.clusters.slurm.total_nodes} Total`;
+            
+            // Update total jobs count
+            const totalJobs = data.slurm_nodes.reduce((sum, node) => sum + node.jobs, 0);
+            document.getElementById('slurm-jobs').textContent = totalJobs;
+            
+            // Update task statistics
+            document.getElementById('total-tasks').textContent = data.tasks.total;
+            document.getElementById('pending-tasks').textContent = data.tasks.pending;
+            document.getElementById('completed-tasks').textContent = data.tasks.completed;
+        }
+        
+        function updateAndroidNodes(nodes) {
+            const nodesGrid = document.getElementById('android-nodes-grid');
+            nodesGrid.innerHTML = '';
+            
+            if (Object.keys(nodes).length === 0) {
+                nodesGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #7f8c8d; padding: 40px;">No Android nodes connected</div>';
+                return;
+            }
+            
+            Object.values(nodes).forEach(node => {
+                const nodeCard = document.createElement('div');
+                nodeCard.className = `node-card ${node.status}`;
+                
+                const lastSeen = new Date(node.last_seen * 1000).toLocaleString();
+                const capabilities = node.capabilities.length > 0 ? node.capabilities.join(', ') : 'None reported';
+                
+                let clusterBadges = '';
+                if (node.kubernetes_registered) {
+                    clusterBadges += '<span class="cluster-badge kubernetes">Kubernetes</span>';
+                }
+                if (node.slurm_registered) {
+                    clusterBadges += '<span class="cluster-badge slurm">SLURM</span>';
+                }
+                
+                nodeCard.innerHTML = `
+                    <div class="node-header">
+                        <div class="node-id">${node.node_id}</div>
+                        <div class="node-status ${node.status}">${node.status}</div>
+                    </div>
+                    <div class="cluster-badges">${clusterBadges}</div>
+                    <div class="metric">
+                        <span>IP Address:</span>
+                        <span class="metric-value">${node.ip_address}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Tasks Completed:</span>
+                        <span class="metric-value">${node.tasks_completed}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Performance Score:</span>
+                        <span class="metric-value">${node.performance_score.toFixed(2)}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Last Seen:</span>
+                        <span class="metric-value">${lastSeen}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Capabilities:</span>
+                        <span class="metric-value">${capabilities}</span>
+                    </div>
+                `;
+                
+                nodesGrid.appendChild(nodeCard);
+            });
+        }
+        
+        function updateKubernetesNodes(nodes) {
+            const nodesGrid = document.getElementById('k8s-nodes-grid');
+            nodesGrid.innerHTML = '';
+            
+            if (nodes.length === 0) {
+                nodesGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #7f8c8d; padding: 40px;">No Kubernetes nodes found</div>';
+                return;
+            }
+            
+            nodes.forEach(node => {
+                const nodeCard = document.createElement('div');
+                nodeCard.className = `node-card ${node.status.toLowerCase()}`;
+                
+                const cpuCapacity = node.capacity.cpu || 'N/A';
+                const memoryCapacity = node.capacity.memory || 'N/A';
+                
+                nodeCard.innerHTML = `
+                    <div class="node-header">
+                        <div class="node-id">${node.name}</div>
+                        <div class="node-status ${node.status.toLowerCase()}">${node.status}</div>
+                    </div>
+                    <div class="cluster-badges">
+                        <span class="cluster-badge kubernetes">Kubernetes</span>
+                    </div>
+                    <div class="metric">
+                        <span>CPU Capacity:</span>
+                        <span class="metric-value">${cpuCapacity}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Memory Capacity:</span>
+                        <span class="metric-value">${memoryCapacity}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Running Pods:</span>
+                        <span class="metric-value">${node.pods}</span>
+                    </div>
+                `;
+                
+                nodesGrid.appendChild(nodeCard);
+            });
+        }
+        
+        function updateSlurmNodes(nodes) {
+            const nodesGrid = document.getElementById('slurm-nodes-grid');
+            nodesGrid.innerHTML = '';
+            
+            if (nodes.length === 0) {
+                nodesGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #7f8c8d; padding: 40px;">No SLURM nodes found</div>';
+                return;
+            }
+            
+            nodes.forEach(node => {
+                const nodeCard = document.createElement('div');
+                const statusClass = node.status.toLowerCase().includes('idle') ? 'connected' : 
+                                   node.status.toLowerCase().includes('down') ? 'disconnected' : 'connected';
+                nodeCard.className = `node-card ${statusClass}`;
+                
+                nodeCard.innerHTML = `
+                    <div class="node-header">
+                        <div class="node-id">${node.name}</div>
+                        <div class="node-status ${statusClass}">${node.status}</div>
+                    </div>
+                    <div class="cluster-badges">
+                        <span class="cluster-badge slurm">SLURM</span>
+                    </div>
+                    <div class="metric">
+                        <span>CPUs:</span>
+                        <span class="metric-value">${node.cpus}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Memory:</span>
+                        <span class="metric-value">${node.memory}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Running Jobs:</span>
+                        <span class="metric-value">${node.jobs}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Features:</span>
+                        <span class="metric-value">${node.features || 'None'}</span>
+                    </div>
+                `;
+                
+                nodesGrid.appendChild(nodeCard);
+            });
+        }
+        
+        async function refreshData() {
+            const loadingEl = document.getElementById('loading');
+            const errorEl = document.getElementById('error');
+            const contentEl = document.getElementById('content');
+            
+            loadingEl.style.display = 'block';
+            errorEl.style.display = 'none';
+            contentEl.style.display = 'none';
+            
+            try {
+                const data = await fetchClusterStatus();
+                updateClusterStatus(data);
+                updateAndroidNodes(data.android_nodes);
+                updateKubernetesNodes(data.kubernetes_nodes);
+                updateSlurmNodes(data.slurm_nodes);
+                
+                loadingEl.style.display = 'none';
+                contentEl.style.display = 'block';
+            } catch (error) {
+                loadingEl.style.display = 'none';
+                errorEl.style.display = 'block';
+            }
+        }
+        
+        // Initial load
+        refreshData();
+        
+        // Auto-refresh every 10 seconds
+        setInterval(refreshData, 10000);
+        
+        function showTaskSubmission() {
+            document.getElementById('task-modal').style.display = 'block';
+            
+            // Set default data based on task type
+            const taskType = document.getElementById('task-type');
+            const taskData = document.getElementById('task-data');
+            
+            taskType.addEventListener('change', function() {
+                switch(this.value) {
+                    case 'prime_calculation':
+                        taskData.value = '{"start": 1, "end": 10000}';
+                        break;
+                    case 'matrix_multiplication':
+                        taskData.value = '{"size": 100}';
+                        break;
+                    case 'hash_computation':
+                        taskData.value = '{"iterations": 1000}';
+                        break;
+                    default:
+                        taskData.value = '{}';
+                }
+            });
+            
+            // Set initial value
+            taskData.value = '{"start": 1, "end": 10000}';
+        }
+        
+        function hideTaskSubmission() {
+            document.getElementById('task-modal').style.display = 'none';
+            document.getElementById('submission-result').style.display = 'none';
+        }
+        
+        async function submitCustomTask() {
+            const taskType = document.getElementById('task-type').value;
+            const taskDataText = document.getElementById('task-data').value;
+            const priority = parseInt(document.getElementById('task-priority').value);
+            const resultDiv = document.getElementById('submission-result');
+            
+            try {
+                const taskData = JSON.parse(taskDataText);
+                
+                const response = await fetch(`${API_BASE}/submit_task`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        task_type: taskType,
+                        data: taskData,
+                        priority: priority
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.style.display = 'block';
+                    resultDiv.style.background = '#d4edda';
+                    resultDiv.style.color = '#155724';
+                    resultDiv.innerHTML = `✅ Task submitted successfully!<br>Task ID: ${result.task_id}`;
+                    
+                    // Refresh data to show new task
+                    setTimeout(refreshData, 1000);
+                } else {
+                    throw new Error(result.error || 'Submission failed');
+                }
+                
+            } catch (error) {
+                resultDiv.style.display = 'block';
+                resultDiv.style.background = '#f8d7da';
+                resultDiv.style.color = '#721c24';
+                resultDiv.innerHTML = `❌ Error: ${error.message}`;
+            }
+        }
+        
+        function showApkDeployment() {
+            document.getElementById('apk-modal').style.display = 'block';
+        }
+        
+        function hideApkDeployment() {
+            document.getElementById('apk-modal').style.display = 'none';
+            document.getElementById('apk-deployment-result').style.display = 'none';
+        }
+        
+        async function deployApk() {
+            const targetNode = document.getElementById('deploy-target-node').value;
+            const apkUrl = document.getElementById('deploy-apk-url').value;
+            const resultDiv = document.getElementById('apk-deployment-result');
+            
+            try {
+                const response = await fetch(`${API_BASE}/deploy_apk`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        target_node: targetNode,
+                        apk_url: apkUrl
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.style.display = 'block';
+                    resultDiv.style.background = '#d4edda';
+                    resultDiv.style.color = '#155724';
+                    resultDiv.innerHTML = `✅ APK deployment started!<br>Job: ${result.job_name}<br>${result.message}`;
+                } else {
+                    throw new Error(result.error || 'Deployment failed');
+                }
+                
+            } catch (error) {
+                resultDiv.style.display = 'block';
+                resultDiv.style.background = '#f8d7da';
+                resultDiv.style.color = '#721c24';
+                resultDiv.innerHTML = `❌ Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

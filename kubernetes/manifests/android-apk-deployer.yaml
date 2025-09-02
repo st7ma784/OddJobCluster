@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: android-apk-deployer
+  labels:
+    app: android-apk-deployer
+spec:
+  template:
+    metadata:
+      labels:
+        app: android-apk-deployer
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: adb-deployer
+        image: android-adb-deployer:latest
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: apk-volume
+          mountPath: /apk
+        - name: usb-devices
+          mountPath: /dev/bus/usb
+        securityContext:
+          privileged: true
+        env:
+        - name: TARGET_NODE
+          value: ""
+        - name: APK_URL
+          value: ""
+        command: ["/usr/local/bin/deploy-apk.sh"]
+      volumes:
+      - name: apk-volume
+        emptyDir: {}
+      - name: usb-devices
+        hostPath:
+          path: /dev/bus/usb
+          type: DirectoryOrCreate
+      nodeSelector:
+        kubernetes.io/os: linux
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apk-deployer-config
+data:
+  download-and-deploy.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "📥 Downloading APK from build artifacts..."
+    
+    # Download APK if URL provided
+    if [ -n "$APK_URL" ]; then
+        wget -O /apk/app-debug.apk "$APK_URL"
+    else
+        # Use pre-built APK from ConfigMap or volume
+        echo "📦 Using pre-built APK"
+    fi
+    
+    # Execute deployment
+    /usr/local/bin/deploy-apk.sh

@@ -1,0 +1,7 @@
+---
+- name: restart cluster coordinator
+  systemd:
+    name: cluster-coordinator
+    state: restarted
+    daemon_reload: yes
+  become: yes

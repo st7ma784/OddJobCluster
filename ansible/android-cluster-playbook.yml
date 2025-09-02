@@ -1,0 +1,56 @@
+---
+- name: Deploy Android Cluster Infrastructure
+  hosts: cluster_coordinators
+  become: yes
+  vars:
+    cluster_coordinator_host: "{{ ansible_default_ipv4.address }}"
+    cluster_coordinator_path: "/opt/cluster-coordinator"
+    android_sdk_path: "/opt/android-sdk"
+  
+  roles:
+    - android-cluster
+
+- name: Configure Android Devices
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    cluster_coordinator_host: "{{ hostvars[groups['cluster_coordinators'][0]]['ansible_default_ipv4']['address'] }}"
+  
+  tasks:
+    - name: Check ADB connection to Android devices
+      shell: adb devices -l
+      register: adb_devices
+      
+    - name: Display connected Android devices
+      debug:
+        msg: "Connected devices: {{ adb_devices.stdout_lines }}"
+    
+    - name: Install kubectl on Android devices via Termux
+      shell: |
+        for device in $(adb devices | grep -E "device$" | cut -f1); do
+          echo "Setting up $device..."
+          adb -s $device shell "am start -n com.termux/.app.TermuxActivity" || true
+          sleep 2
+          adb -s $device shell "input text 'pkg update -y && pkg install -y wget curl python nodejs-lts'" || true
+          adb -s $device shell "input keyevent 66" || true
+          sleep 10
+          adb -s $device shell "input text 'wget https://dl.k8s.io/release/v1.28.0/bin/linux/arm64/kubectl -O \$PREFIX/bin/kubectl'" || true
+          adb -s $device shell "input keyevent 66" || true
+          sleep 5
+          adb -s $device shell "input text 'chmod +x \$PREFIX/bin/kubectl'" || true
+          adb -s $device shell "input keyevent 66" || true
+        done
+      ignore_errors: yes
+      
+    - name: Deploy enhanced APK to all connected devices
+      shell: |
+        cd {{ playbook_dir }}/android-cluster-node
+        ./gradlew assembleRelease
+        for device in $(adb devices | grep -E "device$" | cut -f1); do
+          echo "Deploying to $device..."
+          adb -s $device install -r app/build/outputs/apk/release/app-release.apk
+          adb -s $device shell am start -n com.cluster.node/.MainActivity \
+            --es cluster_url "ws://{{ cluster_coordinator_host }}:8765"
+        done
+      ignore_errors: yes

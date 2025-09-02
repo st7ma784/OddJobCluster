@@ -1,0 +1,118 @@
+#!/usr/bin/env ansible-playbook
+---
+# Complete Android Cluster Deployment Playbook
+- name: Deploy Android Cluster Infrastructure
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    cluster_coordinator_host: "{{ ansible_default_ipv4.address }}"
+    
+  tasks:
+    - name: Install system dependencies
+      package:
+        name:
+          - python3-pip
+          - python3-venv
+          - adb
+          - fastboot
+          - curl
+          - wget
+          - git
+        state: present
+
+    - name: Install Python dependencies for cluster coordinator
+      pip:
+        name:
+          - websockets==15.0.1
+          - aiohttp==3.9.1
+          - aiohttp-cors==0.8.1
+          - asyncio-mqtt
+        state: present
+
+    - name: Create cluster coordinator directory
+      file:
+        path: /opt/cluster-coordinator
+        state: directory
+        mode: '0755'
+
+    - name: Copy cluster coordinator files
+      copy:
+        src: "{{ playbook_dir }}/cluster-coordinator/"
+        dest: /opt/cluster-coordinator/
+        mode: '0755'
+        
+    - name: Create systemd service for cluster coordinator
+      copy:
+        content: |
+          [Unit]
+          Description=Android Cluster Coordinator
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory=/opt/cluster-coordinator
+          ExecStart=/usr/bin/python3 run_server.py
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/cluster-coordinator.service
+        mode: '0644'
+
+    - name: Enable and start cluster coordinator
+      systemd:
+        name: cluster-coordinator
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Build Android APK
+      shell: |
+        cd {{ playbook_dir }}/android-cluster-node
+        ./gradlew assembleRelease
+      become: no
+
+    - name: Check connected Android devices
+      shell: adb devices | grep -E "device$" | wc -l
+      register: device_count
+      become: no
+
+    - name: Deploy APK to Android devices
+      shell: |
+        cd {{ playbook_dir }}/android-cluster-node
+        for device in $(adb devices | grep -E "device$" | cut -f1); do
+          echo "Deploying to device: $device"
+          adb -s $device install -r app/build/outputs/apk/release/app-release.apk
+          adb -s $device shell am start -n com.cluster.node/.MainActivity \
+            --es cluster_url "ws://{{ cluster_coordinator_host }}:8765"
+        done
+      when: device_count.stdout|int > 0
+      become: no
+
+    - name: Install kubectl and SLURM tools on Android devices
+      shell: |
+        cd {{ playbook_dir }}/scripts
+        ./install-android-tools.sh
+      when: device_count.stdout|int > 0
+      become: no
+      ignore_errors: yes
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          🎉 Android Cluster Deployment Complete!
+          
+          📊 Cluster Coordinator: http://{{ cluster_coordinator_host }}:8080
+          🔌 WebSocket Endpoint: ws://{{ cluster_coordinator_host }}:8765
+          📱 Android Devices: {{ device_count.stdout }} connected
+          
+          🚀 Next Steps:
+          1. Open cluster dashboard: http://{{ cluster_coordinator_host }}:8080
+          2. Check Android app on your devices
+          3. Submit test tasks through the dashboard
+          4. Monitor task execution in real-time

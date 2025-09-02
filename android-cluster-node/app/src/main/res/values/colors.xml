@@ -8,6 +8,11 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     
+    <!-- Cluster-specific colors -->
+    <color name="cluster_primary">#FF2196F3</color>
+    <color name="cluster_accent">#FF4CAF50</color>
+    <color name="cluster_error">#FFF44336</color>
+    
     <!-- Custom colors for cluster node app -->
     <color name="primary">#FF2196F3</color>
     <color name="primary_dark">#FF1976D2</color>

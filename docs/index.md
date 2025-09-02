@@ -1,45 +1,68 @@
-# Kubernetes Cluster with SLURM and Jupyter
+# Android Cluster Documentation
 
-A complete, production-ready infrastructure automation solution for deploying high-performance computing clusters on repurposed hardware.
+Welcome to the comprehensive documentation for the Android Cluster system - a revolutionary heterogeneous compute environment that seamlessly integrates Android devices with Kubernetes and SLURM clusters.
+
+## What is Android Cluster?
+
+Android Cluster transforms mobile devices into first-class compute nodes, creating a unified environment where smartphones and tablets work alongside traditional servers to process computational workloads.
+
+### Key Features
+
+- **🚀 Seamless Integration**: Android devices automatically register with existing Kubernetes and SLURM clusters
+- **📱 Native Mobile App**: Purpose-built Android application for cluster participation
+- **🔄 Real-time Management**: Web dashboard for monitoring and task submission
+- **🔐 Enterprise Security**: MUNGE authentication and Kubernetes RBAC
+- **⚡ High Performance**: Optimized for ARM64 mobile processors
+- **🌐 REST API**: Programmatic access for custom integrations
+
+### Architecture Overview
+
+The system consists of several key components:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Web Dashboard │    │ Android Devices │    │ Traditional HPC │
+│                 │    │                 │    │                 │
+│ • Task Submit   │◄──►│ • Native App    │◄──►│ • Kubernetes    │
+│ • Monitoring    │    │ • Termux Env    │    │ • SLURM         │
+│ • Status View   │    │ • Auto-register │    │ • x86/ARM Nodes │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
 
 ## 🚀 Quick Start
 
 Get your cluster running in under 15 minutes:
 
+### 1. Deploy the Android Task Server
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yourusername/kubernetes-slurm-cluster/main/scripts/quick-install.sh | bash
+# Deploy to Kubernetes
+./scripts/deploy-android-task-server.sh
 ```
 
-Or clone and deploy manually:
-
+### 2. Install Android App
 ```bash
-git clone https://github.com/yourusername/kubernetes-slurm-cluster.git
-cd kubernetes-slurm-cluster
-./scripts/deploy.sh
+# Build and install on devices
+cd android-cluster-node
+./gradlew assembleDebug
+adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## 📚 Documentation
+### 3. Configure Devices
+1. Open the Android Cluster app
+2. Set cluster URL: `ws://<your-cluster-ip>:8765`
+3. Enable cluster service
+4. Wait for automatic registration
 
-### Getting Started
-- [Quick Install Guide](QUICK_INSTALL.md) - 15-minute setup
-- [Deployment Guide](../DEPLOYMENT.md) - Complete deployment instructions
-- [Rapid Node Deployment](RAPID_DEPLOYMENT.md) - Add nodes in 5 minutes
+### 4. Access Dashboard
+Navigate to: `http://<cluster-ip>:8766`
 
-### User Guides
-- [SLURM Job Submission](guides/slurm-jobs.md) - Submit and manage jobs
-- [JupyterHub Usage](guides/jupyter.md) - Interactive computing
-- [Monitoring](guides/monitoring.md) - Grafana dashboards and alerts
-
-### Administration
-- [User Management](guides/user-management.md) - Add and manage users
-- [Backup and Restore](guides/backup-restore.md) - Data protection
-- [SSL Configuration](guides/ssl-setup.md) - Security setup
-- [Troubleshooting](guides/troubleshooting.md) - Common issues and solutions
-
-### API Reference
-- [SLURM REST API](api/slurm.md) - Job management API
-- [Kubernetes API](api/kubernetes.md) - Container orchestration
-- [Monitoring API](api/monitoring.md) - Metrics and alerts
+### 5. Submit Tasks
+```bash
+# Via API
+curl -X POST http://<cluster-ip>:8766/submit_task \
+  -H "Content-Type: application/json" \
+  -d '{"task_type": "prime_calculation", "data": {"start": 1, "end": 1000}}'
+```
 
 ## 🏗️ Architecture
 

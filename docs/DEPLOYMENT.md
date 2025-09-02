@@ -1,5 +1,47 @@
 # Kubernetes Cluster with SLURM and Jupyter - Deployment Guide
 
+## Android Cluster Task Server Deployment
+
+### Quick Deploy
+
+```bash
+# Deploy Android Task Server to Kubernetes
+./scripts/deploy-android-task-server.sh
+```
+
+### Manual Deployment Steps
+
+1. **Create ConfigMap with server code:**
+   ```bash
+   kubectl apply -f kubernetes/manifests/android-task-server-config.yaml
+   ```
+
+2. **Deploy the Android Task Server:**
+   ```bash
+   kubectl apply -f kubernetes/manifests/android-task-server.yaml
+   ```
+
+3. **Verify deployment:**
+   ```bash
+   kubectl get pods -n android-cluster
+   kubectl get services -n android-cluster
+   ```
+
+### Access Points
+
+- **WebSocket**: `ws://<node-ip>:30765` (Android connections)
+- **HTTP API**: `http://<node-ip>:30766` (Task submission)
+- **Dashboard**: `http://<node-ip>:30766` (Web interface)
+
+### API Endpoints
+
+- `POST /submit_task` - Submit custom tasks
+- `GET /status` - Get cluster status
+- `GET /tasks` - List all tasks
+- `GET /task/{task_id}` - Get specific task status
+
+---
+
 This guide covers the deployment process for the heterogeneous Kubernetes SLURM cluster supporting both x86 and ARM architectures.
 
 ## Table of Contents

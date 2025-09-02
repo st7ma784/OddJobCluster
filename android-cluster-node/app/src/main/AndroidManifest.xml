@@ -17,6 +17,9 @@
     
     <!-- Auto-start permission -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    
+    <!-- Termux integration permission -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
     <application
         android:allowBackup="true"

@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: android-cluster
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: android-task-server
+  namespace: android-cluster
+  labels:
+    app: android-task-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: android-task-server
+  template:
+    metadata:
+      labels:
+        app: android-task-server
+    spec:
+      containers:
+      - name: task-server
+        image: python:3.9-slim
+        ports:
+        - containerPort: 8765
+          name: websocket
+        - containerPort: 8766
+          name: http
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          pip install websockets aiohttp aiohttp-cors &&
+          python /app/server.py
+        volumeMounts:
+        - name: server-code
+          mountPath: /app
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: server-code
+        configMap:
+          name: android-task-server-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: android-task-server
+  namespace: android-cluster
+  labels:
+    app: android-task-server
+spec:
+  selector:
+    app: android-task-server
+  ports:
+  - name: websocket
+    port: 8765
+    targetPort: 8765
+    protocol: TCP
+  - name: http
+    port: 8766
+    targetPort: 8766
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: android-task-server-external
+  namespace: android-cluster
+  labels:
+    app: android-task-server
+spec:
+  selector:
+    app: android-task-server
+  ports:
+  - name: websocket
+    port: 8765
+    targetPort: 8765
+    nodePort: 30765
+    protocol: TCP
+  - name: http
+    port: 8766
+    targetPort: 8766
+    nodePort: 30766
+    protocol: TCP
+  type: NodePort
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: android-task-server-ingress
+  namespace: android-cluster
+  annotations:
+    nginx.ingress.kubernetes.io/websocket-services: "android-task-server"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /android-cluster
+        pathType: Prefix
+        backend:
+          service:
+            name: android-task-server
+            port:
+              number: 8766
+      - path: /android-ws
+        pathType: Prefix
+        backend:
+          service:
+            name: android-task-server
+            port:
+              number: 8765

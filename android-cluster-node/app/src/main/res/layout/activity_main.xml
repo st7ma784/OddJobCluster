@@ -193,7 +193,17 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="🏃 Benchmark"
-                        android:layout_marginEnd="8dp"
+                        android:layout_marginEnd="4dp"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                    <Button
+                        android:id="@+id/dashboardButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🌐 Dashboard"
+                        android:layout_marginStart="4dp"
+                        android:layout_marginEnd="4dp"
                         style="@style/Widget.Material3.Button.OutlinedButton" />
 
                     <Button
@@ -201,7 +211,33 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🗑️ Clear Log"
+                        android:text="🗑️ Clear"
+                        android:layout_marginStart="4dp"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <Button
+                        android:id="@+id/kubernetesButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="☸️ K8s Test"
+                        android:layout_marginEnd="8dp"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                    <Button
+                        android:id="@+id/slurmButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="⚡ SLURM Test"
                         android:layout_marginStart="8dp"
                         style="@style/Widget.Material3.Button.OutlinedButton" />
 

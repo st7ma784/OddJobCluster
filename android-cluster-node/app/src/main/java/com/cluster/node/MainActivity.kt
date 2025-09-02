@@ -4,7 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
-import android.widget.Switch
+import com.google.android.material.switchmaterial.SwitchMaterial
 import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -22,10 +22,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var deviceInfoText: TextView
     private lateinit var logText: TextView
-    private lateinit var serviceSwitch: Switch
+    private lateinit var serviceSwitch: SwitchMaterial
     private lateinit var clusterUrlEdit: EditText
     private lateinit var connectButton: Button
     private lateinit var benchmarkButton: Button
+    private lateinit var dashboardButton: Button
+    private lateinit var kubernetesButton: Button
+    private lateinit var slurmButton: Button
+    private lateinit var clearLogButton: Button
     
     private lateinit var preferences: SharedPreferences
     private var clusterNodeService: Intent? = null
@@ -52,13 +56,17 @@ class MainActivity : AppCompatActivity() {
         clusterUrlEdit = findViewById(R.id.clusterUrlEdit)
         connectButton = findViewById(R.id.connectButton)
         benchmarkButton = findViewById(R.id.benchmarkButton)
+        dashboardButton = findViewById(R.id.dashboardButton)
+        kubernetesButton = findViewById(R.id.kubernetesButton)
+        slurmButton = findViewById(R.id.slurmButton)
+        clearLogButton = findViewById(R.id.clearLogButton)
     }
     
     private fun setupPreferences() {
         preferences = getSharedPreferences("cluster_node_prefs", Context.MODE_PRIVATE)
         
         // Load saved cluster URL
-        val savedUrl = preferences.getString("cluster_url", "ws://192.168.1.100:8080/android")
+        val savedUrl = preferences.getString("cluster_url", "ws://192.168.5.55:8765")
         clusterUrlEdit.setText(savedUrl)
     }
     
@@ -89,6 +97,22 @@ class MainActivity : AppCompatActivity() {
         
         benchmarkButton.setOnClickListener {
             runLocalBenchmark()
+        }
+        
+        dashboardButton.setOnClickListener {
+            openClusterDashboard()
+        }
+        
+        kubernetesButton.setOnClickListener {
+            testKubernetesIntegration()
+        }
+        
+        slurmButton.setOnClickListener {
+            testSlurmIntegration()
+        }
+        
+        clearLogButton.setOnClickListener {
+            clearLogs()
         }
     }
     
@@ -195,22 +219,19 @@ class MainActivity : AppCompatActivity() {
         addLog("🏃 Running local benchmark...")
         
         lifecycleScope.launch {
-            val computeEngine = ComputeEngine()
+            val computeEngine = ComputeEngine(this@MainActivity)
             
             try {
                 // CPU benchmark
                 val cpuStart = System.currentTimeMillis()
-                val primeResult = computeEngine.calculatePrimes(1, 10000)
+                val primeResult = computeEngine.calculatePrimes(mapOf("start" to 1, "end" to 10000))
                 val cpuDuration = System.currentTimeMillis() - cpuStart
                 
-                addLog("🔢 Prime calculation: ${primeResult.count} primes in ${cpuDuration}ms")
+                addLog("🔢 Prime calculation: ${primeResult["count"]} primes in ${cpuDuration}ms")
                 
                 // Memory benchmark
                 val memStart = System.currentTimeMillis()
-                val matrixResult = computeEngine.multiplyMatrices(
-                    arrayOf(arrayOf(1.0, 2.0), arrayOf(3.0, 4.0)),
-                    arrayOf(arrayOf(5.0, 6.0), arrayOf(7.0, 8.0))
-                )
+                val matrixResult = computeEngine.multiplyMatrices(mapOf("size" to 50))
                 val memDuration = System.currentTimeMillis() - memStart
                 
                 addLog("🧮 Matrix multiplication in ${memDuration}ms")
@@ -234,6 +255,251 @@ class MainActivity : AppCompatActivity() {
             addLog("💡 Disable in Settings > Battery > Battery Optimization")
         } else {
             addLog("✅ Battery optimization disabled - background operation optimized")
+        }
+    }
+    
+    private fun openClusterDashboard() {
+        val clusterUrl = clusterUrlEdit.text.toString()
+        val dashboardUrl = clusterUrl.replace("ws://", "http://").replace(":8765", ":8080")
+        
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(dashboardUrl))
+            startActivity(intent)
+            addLog("🌐 Opening cluster dashboard: $dashboardUrl")
+        } catch (e: Exception) {
+            addLog("❌ Failed to open dashboard: ${e.message}")
+        }
+    }
+    
+    private fun testKubernetesIntegration() {
+        addLog("🚀 Testing Kubernetes integration...")
+        
+        lifecycleScope.launch {
+            // First check if Termux is installed, install if needed
+            if (!isTermuxInstalled()) {
+                addLog("📦 Termux not found - installing automatically...")
+                if (installTermux()) {
+                    addLog("✅ Termux installation initiated")
+                    addLog("⏱️ Please wait for installation to complete, then try again")
+                } else {
+                    addLog("❌ Failed to install Termux automatically")
+                    addLog("💡 Please install Termux manually from F-Droid or GitHub")
+                }
+                return@launch
+            }
+            
+            try {
+                // Check if kubectl is already available and run test command
+                val testCommand = "if command -v kubectl >/dev/null 2>&1; then " +
+                        "echo '✅ kubectl found - running test...' && " +
+                        "kubectl version --client && " +
+                        "echo '🔧 Testing cluster connection...' && " +
+                        "kubectl cluster-info --request-timeout=5s 2>/dev/null || echo '⚠️ No cluster configured (this is normal)' && " +
+                        "echo '✅ kubectl test complete'; " +
+                        "else " +
+                        "echo '📦 kubectl not found - installing...' && " +
+                        "pkg update -y && pkg install -y wget curl && " +
+                        "wget https://dl.k8s.io/release/v1.28.0/bin/linux/arm64/kubectl -O \$PREFIX/bin/kubectl && " +
+                        "chmod +x \$PREFIX/bin/kubectl && kubectl version --client && echo '✅ kubectl installation complete'; " +
+                        "fi"
+                
+                // Copy command to clipboard and open Termux
+                try {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("kubectl_test", testCommand)
+                    clipboard.setPrimaryClip(clip)
+                    
+                    val intent = Intent()
+                    intent.setClassName("com.termux", "com.termux.app.TermuxActivity")
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(intent)
+                    
+                    addLog("✅ kubectl test command copied to clipboard")
+                    addLog("📱 Termux opened - paste and run the command")
+                    addLog("💡 Long press in Termux terminal and select 'Paste'")
+                } catch (e: Exception) {
+                    val intent = Intent()
+                    intent.setClassName("com.termux", "com.termux.app.TermuxActivity")
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(intent)
+                    
+                    addLog("✅ Termux opened")
+                    addLog("📝 Run this command manually:")
+                    addLog("   $testCommand")
+                }
+                
+            } catch (e: Exception) {
+                addLog("❌ Kubernetes test failed: ${e.message}")
+                addLog("💡 Make sure Termux is installed and accessible")
+            }
+        }
+    }
+    
+    private fun copyInstallScriptToStorage() {
+        try {
+            val inputStream = assets.open("install_tools.sh")
+            val externalDir = getExternalFilesDir(null)
+            val scriptFile = java.io.File(externalDir, "install_tools.sh")
+            
+            scriptFile.outputStream().use { output ->
+                inputStream.copyTo(output)
+            }
+            
+            addLog("📄 Installation script copied to ${scriptFile.absolutePath}")
+        } catch (e: Exception) {
+            addLog("⚠️ Could not copy installation script: ${e.message}")
+        }
+    }
+    
+    private fun testSlurmIntegration() {
+        addLog("⚡ Testing SLURM integration...")
+        
+        lifecycleScope.launch {
+            // First check if Termux is installed, install if needed
+            if (!isTermuxInstalled()) {
+                addLog("📦 Termux not found - installing automatically...")
+                if (installTermux()) {
+                    addLog("✅ Termux installation initiated")
+                    addLog("⏱️ Please wait for installation to complete, then try again")
+                } else {
+                    addLog("❌ Failed to install Termux automatically")
+                    addLog("💡 Please install Termux manually from F-Droid or GitHub")
+                }
+                return@launch
+            }
+            
+            try {
+                // Check if SLURM is already available and run test command
+                val testCommand = "if command -v sinfo >/dev/null 2>&1; then " +
+                    "echo '✅ SLURM found - running test...' && " +
+                    "sinfo --version && " +
+                    "echo '🔧 Testing SLURM commands...' && " +
+                    "sinfo -s 2>/dev/null || echo '⚠️ No SLURM cluster configured (this is normal)' && " +
+                    "echo '📊 SLURM partitions:' && " +
+                    "scontrol show partition 2>/dev/null || echo '⚠️ No partitions configured' && " +
+                    "echo '🔐 Testing MUNGE authentication...' && " +
+                    "if command -v munge >/dev/null 2>&1; then " +
+                    "echo 'test' | munge | unmunge && echo '✅ MUNGE working' || echo '❌ MUNGE failed'; " +
+                    "else echo '⚠️ MUNGE not installed'; fi && " +
+                    "echo '✅ SLURM test complete'; " +
+                    "else " +
+                    "echo '📦 SLURM not found - installing with MUNGE (15-20 minutes)...' && " +
+                    "pkg update -y && pkg install -y make clang binutils autoconf automake libtool git wget curl openssl-tool && " +
+                    "echo '🔐 Installing and setting up MUNGE...' && " +
+                    "pkg install -y munge || (echo '📦 Building MUNGE from source...' && " +
+                    "cd \$HOME && git clone https://github.com/dun/munge.git && cd munge && " +
+                    "./bootstrap && ./configure --prefix=\$PREFIX --sysconfdir=\$PREFIX/etc && " +
+                    "make && make install) && " +
+                    "echo '🔑 Setting up MUNGE key and daemon...' && " +
+                    "mkdir -p \$PREFIX/etc/munge \$PREFIX/var/lib/munge \$PREFIX/var/log/munge \$PREFIX/var/run/munge && " +
+                    "dd if=/dev/urandom bs=1 count=1024 > \$PREFIX/etc/munge/munge.key 2>/dev/null && " +
+                    "chmod 400 \$PREFIX/etc/munge/munge.key && " +
+                    "chmod 700 \$PREFIX/etc/munge \$PREFIX/var/lib/munge \$PREFIX/var/log/munge \$PREFIX/var/run/munge && " +
+                    "export MUNGE_SOCKETDIR=\$PREFIX/var/run/munge && " +
+                    "munged --foreground --syslog &" +
+                    "sleep 3 && " +
+                    "echo 'test' | munge | unmunge && echo '✅ MUNGE authentication working' || echo '❌ MUNGE test failed' && " +
+                    "echo '📦 Installing SLURM with MUNGE support...' && " +
+                    "export CC=clang && export CXX=clang++ && " +
+                    "cd \$HOME && " +
+                    "if [ ! -d slurm ]; then git clone https://github.com/SchedMD/slurm.git; fi && " +
+                    "cd slurm && " +
+                    "./configure --prefix=\$PREFIX --disable-dependency-tracking --without-mysql --with-munge=\$PREFIX --sysconfdir=\$PREFIX/etc/slurm CC=clang CXX=clang++ && " +
+                    "make -j\$(nproc) && make install && " +
+                    "mkdir -p \$PREFIX/etc/slurm && " +
+                    "echo 'ClusterName=android-cluster' > \$PREFIX/etc/slurm/slurm.conf && " +
+                    "echo 'ControlMachine=localhost' >> \$PREFIX/etc/slurm/slurm.conf && " +
+                    "echo 'AuthType=auth/munge' >> \$PREFIX/etc/slurm/slurm.conf && " +
+                    "echo 'NodeName=android-node CPUs=4 RealMemory=4096 State=UNKNOWN' >> \$PREFIX/etc/slurm/slurm.conf && " +
+                    "echo 'PartitionName=android Nodes=android-node Default=YES MaxTime=INFINITE State=UP' >> \$PREFIX/etc/slurm/slurm.conf && " +
+                    "sinfo --version && echo '✅ SLURM with MUNGE installation complete'; " +
+                    "fi"
+                
+                // Copy command to clipboard and open Termux
+                try {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("slurm_test", testCommand)
+                    clipboard.setPrimaryClip(clip)
+                    
+                    val intent = Intent()
+                    intent.setClassName("com.termux", "com.termux.app.TermuxActivity")
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(intent)
+                    
+                    addLog("✅ SLURM test command copied to clipboard")
+                    addLog("📱 Termux opened - paste and run the command")
+                    addLog("💡 Long press in Termux terminal and select 'Paste'")
+                    addLog("⏱️ Note: Installation may take 10-15 minutes if not installed")
+                } catch (e: Exception) {
+                    val intent = Intent()
+                    intent.setClassName("com.termux", "com.termux.app.TermuxActivity")
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(intent)
+                    
+                    addLog("✅ Termux opened")
+                    addLog("📝 Run this command manually:")
+                    addLog("   $testCommand")
+                    addLog("⏱️ Note: Installation may take 10-15 minutes if not installed")
+                }
+                
+            } catch (e: Exception) {
+                addLog("❌ SLURM test failed: ${e.message}")
+                addLog("💡 Make sure Termux is installed and accessible")
+            }
+        }
+    }
+
+    private fun isTermuxInstalled(): Boolean {
+        return try {
+            val pm = packageManager
+            pm.getPackageInfo("com.termux", 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    private fun installTermux(): Boolean {
+        return try {
+            // Create a more comprehensive Termux installation approach
+            addLog("📦 Attempting to install Termux...")
+            
+            // First try F-Droid if available
+            val fdroidIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://f-droid.org/packages/com.termux/"))
+            fdroidIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            
+            try {
+                startActivity(fdroidIntent)
+                addLog("🔗 Opening F-Droid Termux page (recommended)")
+                addLog("📱 Install Termux from F-Droid for best compatibility")
+                return true
+            } catch (e: Exception) {
+                addLog("⚠️ F-Droid not available, trying GitHub...")
+            }
+            
+            // Fallback to GitHub releases
+            val termuxUrl = "https://github.com/termux/termux-app/releases/download/v0.118.0/termux-app_v0.118.0+github-debug_arm64-v8a.apk"
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(termuxUrl))
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            startActivity(intent)
+            
+            addLog("🔗 Opening Termux GitHub download...")
+            addLog("📱 Please install the APK when download completes")
+            addLog("⚠️ Note: You may need to enable 'Install from unknown sources'")
+            true
+        } catch (e: Exception) {
+            addLog("❌ Failed to open Termux installation: ${e.message}")
+            addLog("💡 Manual installation required:")
+            addLog("   1. Install F-Droid from f-droid.org")
+            addLog("   2. Install Termux from F-Droid")
+            addLog("   3. Or download APK from GitHub termux/termux-app")
+            false
+        }
+    }
+    
+    private fun clearLogs() {
+        runOnUiThread {
+            logText.text = "[${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}] 📱 Logs cleared\n"
         }
     }
     

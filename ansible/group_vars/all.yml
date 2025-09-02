@@ -4,6 +4,36 @@ kubernetes_version: "1.28.0-00"
 kubernetes_apt_key: "https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key"
 kubernetes_apt_repository: "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
 
+# Global configuration for the cluster
+cluster_name: "OddJobCluster"
+cluster_domain: "local"
+
+# Network configuration
+cluster_network: "192.168.5.0/24"
+cluster_gateway: "192.168.5.1"
+
+# Storage configuration
+shared_storage_path: "/shared"
+backup_path: "/backup"
+
+# Security configuration
+ssh_key_path: "~/.ssh/cluster_key"
+enable_firewall: true
+
+# Monitoring configuration
+monitoring_enabled: true
+log_level: "INFO"
+
+# Android Cluster Configuration
+cluster_coordinator_port: 8765
+cluster_dashboard_port: 8080
+android_sdk_path: "/opt/android-sdk"
+cluster_coordinator_path: "/opt/cluster-coordinator"
+
+# Kubernetes configuration
+kubectl_version: "v1.28.0"
+kubernetes_namespace: "android-cluster"
+
 # Container Runtime (containerd)
 containerd_version: "1.6.8-1"
 
@@ -13,6 +43,8 @@ service_cidr: "10.96.0.0/12"
 
 # SLURM Configuration
 slurm_version: "22.05.9"
+slurm_partition: "android"
+slurm_job_timeout: "1-00:00:00"
 mysql_root_password: "change_this_secure_password"
 slurmdbd_password: "change_this_secure_password"
 

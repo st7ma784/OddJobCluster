@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Cluster Node</string>
+    <string name="app_name">ClusterNode</string>
+    <string name="node_status">Node Status</string>
+    <string name="computing_power">Computing Power</string>
+    <string name="network_status">Network Status</string>
+    <string name="start_service">Start Service</string>
+    <string name="stop_service">Stop Service</string>
     <string name="service_name">Android Cluster Node Service</string>
     <string name="service_description">Connects this Android device to a compute cluster as a worker node</string>
     <string name="notification_channel_name">Cluster Service</string>
