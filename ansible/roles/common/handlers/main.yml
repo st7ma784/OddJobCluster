@@ -3,3 +3,8 @@
   systemd:
     name: docker
     state: restarted
+
+- name: restart sshd
+  systemd:
+    name: sshd
+    state: restarted

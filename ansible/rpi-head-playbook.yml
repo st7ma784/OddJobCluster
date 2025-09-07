@@ -1,6 +1,50 @@
 ---
-- name: Configure Raspberry Pi as Kubernetes Head Node
-  hosts: rpi_head # Make sure you have a 'rpi_head' group in your inventory
+- name: Configure Raspberry Pi as Kubernetes Control Plane
+  hosts: rpi_control_plane
   become: yes
+  vars:
+    ansible_become_timeout: 60
+    ansible_ssh_timeout: 60
+    ansible_timeout: 60
+    k8s_version: "1.29.0-1.1"
+    pod_network_cidr: "10.244.0.0/16"
+    
+  pre_tasks:
+    - name: Verify system requirements
+      assert:
+        that:
+          - ansible_architecture == 'aarch64' or ansible_architecture == 'armv7l'
+          - ansible_memtotal_mb >= 400  # Reduced for RPi
+          - ansible_processor_vcpus >= 2
+        fail_msg: >
+          System does not meet minimum requirements:
+          - Architecture must be ARM (aarch64/armv7l), found: {{ ansible_architecture }}
+          - Minimum 400MB RAM required, found: {{ ansible_memtotal_mb }}MB
+          - Minimum 2 vCPUs required, found: {{ ansible_processor_vcpus }}
+  
   roles:
-    - rpi_head_node
+    - role: rpi_head_node
+      vars:
+        k8s_version: "{{ k8s_version }}"
+        pod_network_cidr: "{{ pod_network_cidr }}"
+  
+  post_tasks:
+    - name: Display Kubernetes cluster status
+      command: kubectl get nodes -o wide
+      register: k8s_status
+      changed_when: false
+      ignore_errors: yes
+    
+    - name: Display join command for worker nodes
+      command: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+      ignore_errors: yes
+      when: k8s_status.rc == 0
+    
+    - name: Show join command
+      debug:
+        msg: |
+          To add worker nodes to this cluster, run the following command on them:
+          {{ join_command.stdout }}
+      when: join_command is defined and join_command.rc == 0

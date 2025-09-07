@@ -1,0 +1,19 @@
+---
+# Security configuration tasks
+- name: Configure firewall (UFW)
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+  with_items:
+    - '22'      # SSH
+    - '6443'    # Kubernetes API
+    - '80'      # HTTP
+    - '443'     # HTTPS
+    - '8080'    # Dashboard
+    - '6817'    # SLURM slurmctld
+    - '6818'    # SLURM slurmd
+    - '8888'    # Jupyter
+
+- name: Enable UFW
+  ufw:
+    state: enabled

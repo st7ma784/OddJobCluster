@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atmosray-deployment
+  labels:
+    app: atmosray
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: atmosray
+  template:
+    metadata:
+      labels:
+        app: atmosray
+    spec:
+      containers:
+      - name: atmosray
+        image: st7ma784/AtmosRay:latest
+        ports:
+        - containerPort: 5000
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: atmosray-service
+spec:
+  selector:
+    app: atmosray
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+      nodePort: 30500
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: atmosray-loadbalancer
+spec:
+  selector:
+    app: atmosray
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: LoadBalancer

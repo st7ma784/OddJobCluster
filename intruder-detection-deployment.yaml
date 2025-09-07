@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intruder-detection
+  namespace: default
+  labels:
+    app: intruder-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: intruder-detection
+  template:
+    metadata:
+      labels:
+        app: intruder-detection
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: steve-thinkpad-l490
+      containers:
+      - name: intruder-detection
+        image: st7ma784/intruder-detection:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: CAMERA_DEVICE
+          value: "/dev/video0"
+        - name: DETECTION_SENSITIVITY
+          value: "medium"
+        - name: ALERT_WEBHOOK
+          value: "http://radio-server-service.radio-propagation.svc.cluster.local:8080/api/alerts"
+        - name: LOG_LEVEL
+          value: "INFO"
+        volumeMounts:
+        - name: camera-device
+          mountPath: /dev/video0
+        - name: camera-device1
+          mountPath: /dev/video1
+          readOnly: false
+        - name: recordings
+          mountPath: /app/recordings
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+              - SYS_ADMIN
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: camera-device
+        hostPath:
+          path: /dev/video0
+          type: CharDevice
+      - name: camera-device1
+        hostPath:
+          path: /dev/video1
+          type: CharDevice
+      - name: recordings
+        hostPath:
+          path: /var/lib/intruder-detection/recordings
+          type: DirectoryOrCreate
+      tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intruder-detection-service
+  namespace: default
+spec:
+  selector:
+    app: intruder-detection
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30080
+  type: NodePort
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intruder-detection-config
+  namespace: default
+data:
+  detection.conf: |
+    # Intruder Detection Configuration
+    camera_resolution=1280x720
+    detection_threshold=0.7
+    motion_sensitivity=medium
+    recording_duration=30
+    alert_cooldown=300
+    
+    # Detection zones (x,y,width,height)
+    detection_zones=0,0,1280,720
+    
+    # Alert settings
+    send_email_alerts=false
+    send_webhook_alerts=true
+    save_recordings=true
+    
+    # Performance settings
+    frame_rate=15
+    detection_interval=1

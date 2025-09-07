@@ -1,0 +1,132 @@
+---
+- name: Cluster Management Operations
+  hosts: all
+  become: true
+  gather_facts: false
+  vars_prompt:
+    - name: operation
+      prompt: "Choose operation: [restart_services|scale_atmosray|add_slurm_node|cluster_health]"
+      private: no
+      default: "cluster_health"
+
+  tasks:
+    - name: Restart all cluster services
+      block:
+        - name: Restart containerd
+          systemd:
+            name: containerd
+            state: restarted
+
+        - name: Restart SLURM controller
+          systemd:
+            name: slurmctld
+            state: restarted
+          when: inventory_hostname in groups['master']
+
+        - name: Restart SLURM daemon
+          systemd:
+            name: slurmd
+            state: restarted
+          when: inventory_hostname in groups['workers']
+
+        - name: Restart munge
+          systemd:
+            name: munge
+            state: restarted
+      when: operation == "restart_services"
+
+    - name: Scale AtmosRay deployment
+      block:
+        - name: Get current replica count
+          shell: kubectl get deployment atmosray-deployment -o jsonpath='{.spec.replicas}'
+          register: current_replicas
+          environment:
+            KUBECONFIG: /etc/kubernetes/admin.conf
+
+        - name: Prompt for new replica count
+          pause:
+            prompt: "Current replicas: {{ current_replicas.stdout }}. Enter new replica count"
+          register: new_replicas
+
+        - name: Scale deployment
+          shell: kubectl scale deployment atmosray-deployment --replicas={{ new_replicas.user_input }}
+          environment:
+            KUBECONFIG: /etc/kubernetes/admin.conf
+
+        - name: Wait for rollout to complete
+          shell: kubectl rollout status deployment/atmosray-deployment
+          environment:
+            KUBECONFIG: /etc/kubernetes/admin.conf
+      when: operation == "scale_atmosray" and inventory_hostname in groups['master']
+
+    - name: Add new SLURM node
+      block:
+        - name: Prompt for node details
+          pause:
+            prompt: "Enter node details: hostname,ip,cpus,memory (e.g., newnode,192.168.1.100,8,16000)"
+          register: node_details
+
+        - name: Parse node details
+          set_fact:
+            node_info: "{{ node_details.user_input.split(',') }}"
+
+        - name: Update SLURM configuration
+          lineinfile:
+            path: /etc/slurm/slurm.conf
+            insertafter: "# Node definitions"
+            line: "NodeName={{ node_info[0] }} CPUs={{ node_info[2] }} Sockets=1 CoresPerSocket={{ (node_info[2]|int / 2)|int }} ThreadsPerCore=2 RealMemory={{ node_info[3] }} State=UNKNOWN NodeAddr={{ node_info[1] }}"
+
+        - name: Update partition definition
+          lineinfile:
+            path: /etc/slurm/slurm.conf
+            regexp: "^PartitionName=compute Nodes="
+            line: "PartitionName=compute Nodes={{ ansible_play_hosts | join(',') }},{{ node_info[0] }} Default=YES MaxTime=INFINITE State=UP"
+
+        - name: Restart SLURM services
+          systemd:
+            name: slurmctld
+            state: restarted
+      when: operation == "add_slurm_node" and inventory_hostname in groups['master']
+
+    - name: Perform cluster health check
+      block:
+        - name: Check Kubernetes cluster health
+          shell: |
+            echo "=== Kubernetes Cluster Health ==="
+            kubectl cluster-info
+            echo "=== Node Status ==="
+            kubectl get nodes
+            echo "=== Pod Status ==="
+            kubectl get pods --all-namespaces | grep -v Running | head -10
+          register: k8s_health
+          environment:
+            KUBECONFIG: /etc/kubernetes/admin.conf
+
+        - name: Check SLURM cluster health
+          shell: |
+            echo "=== SLURM Cluster Health ==="
+            sinfo
+            echo "=== SLURM Jobs ==="
+            squeue
+            echo "=== Node Details ==="
+            scontrol show nodes | grep -E "(NodeName|State|CPUAlloc|MemAlloc)"
+          register: slurm_health
+
+        - name: Check AtmosRay health
+          shell: |
+            echo "=== AtmosRay Health ==="
+            kubectl get deployment atmosray-deployment
+            kubectl get pods -l app=atmosray
+            NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+            curl -s -o /dev/null -w "AtmosRay HTTP Status: %{http_code}\n" http://$NODE_IP:30500 || echo "AtmosRay connection failed"
+          register: atmosray_health
+          environment:
+            KUBECONFIG: /etc/kubernetes/admin.conf
+
+        - name: Display health status
+          debug:
+            msg: |
+              {{ k8s_health.stdout }}
+              {{ slurm_health.stdout }}
+              {{ atmosray_health.stdout }}
+      when: operation == "cluster_health" and inventory_hostname in groups['master']

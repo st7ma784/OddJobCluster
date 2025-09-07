@@ -1,0 +1,7 @@
+---
+- name: Set up Kubernetes cluster with SLURM 
+  hosts: master,workers
+  become: true
+  roles:
+    - kubernetes
+    - slurm

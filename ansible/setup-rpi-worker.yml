@@ -1,0 +1,142 @@
+---
+- name: Setup Raspberry Pi as Kubernetes Worker Node Only
+  hosts: rpi-control
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    kubernetes_version: "1.28"
+    
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+        
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+        state: present
+        
+    - name: Install Docker for ARM64
+      apt:
+        name:
+          - docker.io
+          - containerd
+        state: present
+        
+    - name: Start and enable Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+        
+    - name: Start and enable containerd
+      systemd:
+        name: containerd
+        state: started
+        enabled: yes
+        
+    - name: Add Kubernetes apt key
+      apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key
+        keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        state: present
+        
+    - name: Add Kubernetes repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/ /"
+        filename: kubernetes
+        state: present
+        
+    - name: Update apt cache after adding Kubernetes repo
+      apt:
+        update_cache: yes
+        
+    - name: Install Kubernetes components
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        
+    - name: Hold Kubernetes packages
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+        
+    - name: Configure kernel parameters
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+        
+    - name: Load br_netfilter module
+      modprobe:
+        name: br_netfilter
+        state: present
+        
+    - name: Make br_netfilter persistent
+      lineinfile:
+        path: /etc/modules-load.d/k8s.conf
+        line: br_netfilter
+        create: yes
+        
+    - name: Configure containerd for Kubernetes
+      shell: |
+        containerd config default > /etc/containerd/config.toml
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+        
+    - name: Restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+        
+    - name: Enable and start kubelet
+      systemd:
+        name: kubelet
+        enabled: yes
+        state: started
+        
+    - name: Disable swap permanently
+      shell: |
+        swapoff -a
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+      when: ansible_swaptotal_mb > 0
+      
+    - name: Create cluster user for Pi
+      user:
+        name: cluster
+        groups: docker,sudo
+        append: yes
+        shell: /bin/bash
+        create_home: yes
+        
+    - name: Add cluster user to sudoers
+      lineinfile:
+        path: /etc/sudoers.d/cluster
+        line: 'cluster ALL=(ALL) NOPASSWD:ALL'
+        create: yes
+        validate: 'visudo -cf %s'
+        
+    - name: Print Pi is ready message
+      debug:
+        msg: "Raspberry Pi is now ready to join the Kubernetes cluster as a worker node!"

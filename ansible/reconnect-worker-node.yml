@@ -1,0 +1,111 @@
+---
+- name: Reconnect Missing Worker Node
+  hosts: cluster-node-1
+  become: true
+  gather_facts: false
+  vars:
+    kubernetes_join_command: "{{ hostvars[groups['master'][0]]['kubernetes_join_command'] | default('') }}"
+  
+  tasks:
+    - name: Check if node is reachable
+      ping:
+      register: ping_result
+      ignore_errors: yes
+
+    - name: Display node status
+      debug:
+        msg: "Node {{ inventory_hostname }} ({{ ansible_host }}) is {{ 'REACHABLE' if ping_result is succeeded else 'UNREACHABLE' }}"
+
+    - name: Continue only if node is reachable
+      meta: end_host
+      when: ping_result is failed
+
+    - name: Check current Kubernetes status
+      command: kubectl get nodes
+      register: current_nodes
+      ignore_errors: yes
+      delegate_to: "{{ groups['master'][0] }}"
+
+    - name: Reset kubelet if already joined
+      shell: |
+        kubeadm reset -f
+        rm -rf /etc/kubernetes/kubelet.conf
+        rm -rf /var/lib/kubelet/pki
+        systemctl restart kubelet
+      ignore_errors: yes
+
+    - name: Get fresh join command
+      shell: kubeadm token create --print-join-command
+      register: join_command_output
+      delegate_to: "{{ groups['master'][0] }}"
+
+    - name: Join worker node to cluster
+      shell: "{{ join_command_output.stdout }}"
+      register: join_result
+
+    - name: Wait for node to appear in cluster
+      shell: kubectl get nodes {{ ansible_hostname }} --no-headers
+      register: node_check
+      until: node_check.rc == 0
+      retries: 10
+      delay: 30
+      delegate_to: "{{ groups['master'][0] }}"
+
+    - name: Check node status
+      shell: kubectl get nodes {{ ansible_hostname }} -o wide
+      delegate_to: "{{ groups['master'][0] }}"
+      register: final_node_status
+
+    - name: Display final status
+      debug:
+        var: final_node_status.stdout_lines
+
+    - name: Update SLURM configuration for reconnected node
+      lineinfile:
+        path: /etc/slurm/slurm.conf
+        regexp: "^NodeName={{ ansible_hostname }}"
+        line: "NodeName={{ ansible_hostname }} CPUs=8 Sockets=1 CoresPerSocket=4 ThreadsPerCore=2 RealMemory=11000 State=UNKNOWN NodeAddr={{ ansible_host }}"
+      delegate_to: "{{ groups['master'][0] }}"
+      notify: restart slurm controller
+
+    - name: Resume node in SLURM
+      shell: scontrol update NodeName={{ ansible_hostname }} State=RESUME
+      delegate_to: "{{ groups['master'][0] }}"
+      ignore_errors: yes
+
+  handlers:
+    - name: restart slurm controller
+      systemd:
+        name: slurmctld
+        state: restarted
+      delegate_to: "{{ groups['master'][0] }}"
+
+---
+- name: Worker Node Reconnection Helper
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Check missing worker node connectivity
+      command: ping -c 3 {{ item }}
+      with_items:
+        - 192.168.4.31
+      register: ping_results
+      ignore_errors: yes
+
+    - name: Display connectivity status
+      debug:
+        msg: |
+          Worker Node Connectivity Status:
+          192.168.4.31: {{ 'ONLINE' if ping_results.results[0].rc == 0 else 'OFFLINE' }}
+          
+          To reconnect when online:
+          ansible-playbook -i ansible/inventory_working.ini reconnect-worker-node.yml
+
+    - name: Current cluster status
+      shell: kubectl get nodes
+      register: cluster_nodes
+      delegate_to: "{{ groups['master'][0] }}"
+      
+    - name: Display current cluster
+      debug:
+        var: cluster_nodes.stdout_lines

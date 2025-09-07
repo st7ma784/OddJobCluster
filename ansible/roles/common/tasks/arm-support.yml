@@ -75,14 +75,21 @@
 - name: Install Docker with ARM support
   block:
     - name: Add Docker GPG key
-      apt_key:
+      get_url:
         url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
-      when: ansible_os_family == "Debian"
+        dest: /tmp/docker.gpg
+        mode: '0644'
+      when: false  # Disabled for now
+
+    - name: Add Docker GPG key to keyring
+      shell: |
+        gpg --dearmor < /tmp/docker.gpg > /usr/share/keyrings/docker-archive-keyring.gpg
+      become: yes
+      when: false  # Disabled for now
 
     - name: Add Docker repository (ARM64)
       apt_repository:
-        repo: "deb [arch=arm64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        repo: "deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
         state: present
       when: 
         - is_arm64
@@ -90,19 +97,25 @@
 
     - name: Add Docker repository (ARMHF)
       apt_repository:
-        repo: "deb [arch=armhf] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        repo: "deb [arch=armhf signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
         state: present
       when: 
         - is_armhf
         - ansible_os_family == "Debian"
 
+    - name: Add Docker repository (x86_64)
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+      when: 
+        - is_x86_64
+        - ansible_os_family == "Debian"
+
     - name: Install Docker CE
       package:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
+        name: docker.io  # Use Ubuntu's docker.io package instead
         state: present
+      when: ansible_os_family == "Debian"
 
 - name: Configure containerd for ARM
   template:

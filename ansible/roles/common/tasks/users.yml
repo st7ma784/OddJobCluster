@@ -1,0 +1,17 @@
+---
+# User management tasks
+- name: Create cluster user
+  user:
+    name: cluster
+    shell: /bin/bash
+    home: /home/cluster
+    create_home: yes
+    groups: docker,sudo
+    append: yes
+
+- name: Add cluster user to sudoers
+  lineinfile:
+    path: /etc/sudoers.d/cluster
+    line: 'cluster ALL=(ALL) NOPASSWD:ALL'
+    create: yes
+    mode: '0440'

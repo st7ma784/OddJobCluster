@@ -1,0 +1,190 @@
+# Ingress Controller and Networking Fixes
+---
+# Install NGINX Ingress Controller
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-nginx
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-ingress-controller
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress-controller
+    spec:
+      serviceAccountName: nginx-ingress-controller
+      containers:
+      - name: nginx-ingress-controller
+        image: k8s.gcr.io/ingress-nginx/controller:v1.8.1
+        args:
+        - /nginx-ingress-controller
+        - --ingress-class=nginx
+        - --configmap=$(POD_NAMESPACE)/nginx-configuration
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        ports:
+        - name: http
+          containerPort: 80
+        - name: https
+          containerPort: 443
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nginx-ingress-controller
+rules:
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "update", "create"]
+- apiGroups: ["extensions", "networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions", "networking.k8s.io"]
+  resources: ["ingresses/status"]
+  verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nginx-ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nginx-ingress-controller
+subjects:
+- kind: ServiceAccount
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    nodePort: 30880
+  - name: https
+    port: 443
+    targetPort: 443
+    nodePort: 30443
+  selector:
+    app: nginx-ingress-controller
+---
+# Fix LUStores Service - Convert LoadBalancer to NodePort
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: lustores
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    nodePort: 31080
+  - name: https
+    port: 443
+    targetPort: 443
+    nodePort: 31443
+  selector:
+    app: nginx
+---
+# Ingress for all web services
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cluster-web-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: cluster.local
+    http:
+      paths:
+      - path: /lustores
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx
+            port:
+              number: 80
+      - path: /radio
+        pathType: Prefix
+        backend:
+          service:
+            name: radio-server-service
+            port:
+              number: 8080
+      - path: /intruder
+        pathType: Prefix
+        backend:
+          service:
+            name: intruder-detection-service
+            port:
+              number: 8080
+---
+# Atmospheric simulator NodePort service
+apiVersion: v1
+kind: Service
+metadata:
+  name: simulator-nodeport
+  namespace: radio-propagation
+spec:
+  type: NodePort
+  ports:
+  - port: 8081
+    targetPort: 8081
+    nodePort: 31081
+  selector:
+    app: atmospheric-simulator
+---
+# Radio server NodePort service
+apiVersion: v1
+kind: Service
+metadata:
+  name: radio-server-nodeport
+  namespace: radio-propagation
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 31082
+  selector:
+    app: simple-radio-server

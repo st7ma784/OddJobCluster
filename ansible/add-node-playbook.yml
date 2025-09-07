@@ -1,0 +1,198 @@
+---
+- name: Add steve-thinkpad-l490-node1 to Kubernetes Cluster
+  hosts: cluster-node-1
+  become: true
+  gather_facts: true
+  vars:
+    master_ip: 192.168.4.157
+    
+  tasks:
+    - name: Test connectivity to the node
+      ping:
+      register: ping_result
+      
+    - name: Display node information
+      debug:
+        msg: |
+          Node: {{ inventory_hostname }}
+          IP: {{ ansible_host }}
+          User: {{ ansible_user }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          
+    - name: Check if Kubernetes is already installed
+      stat:
+        path: /usr/bin/kubelet
+      register: kubelet_exists
+      
+    - name: Install Kubernetes if not present
+      block:
+        - name: Update package cache
+          apt:
+            update_cache: yes
+            
+        - name: Install required packages
+          apt:
+            name:
+              - apt-transport-https
+              - ca-certificates
+              - curl
+              - software-properties-common
+            state: present
+            
+        - name: Add Kubernetes APT signing key
+          apt_key:
+            url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
+            state: present
+            
+        - name: Add Kubernetes APT repository
+          apt_repository:
+            repo: "deb https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+            state: present
+            
+        - name: Install Kubernetes components
+          apt:
+            name:
+              - kubelet=1.28.15-1.1
+              - kubeadm=1.28.15-1.1
+              - kubectl=1.28.15-1.1
+            state: present
+            
+        - name: Hold Kubernetes packages
+          dpkg_selections:
+            name: "{{ item }}"
+            selection: hold
+          loop:
+            - kubelet
+            - kubeadm
+            - kubectl
+            
+        - name: Install containerd
+          apt:
+            name: containerd
+            state: present
+            
+        - name: Configure containerd
+          copy:
+            content: |
+              version = 2
+              
+              [plugins]
+                [plugins."io.containerd.grpc.v1.cri"]
+                  sandbox_image = "registry.k8s.io/pause:3.9"
+                  [plugins."io.containerd.grpc.v1.cri".containerd]
+                    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+                      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                        runtime_type = "io.containerd.runc.v2"
+                        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                          SystemdCgroup = true
+            dest: /etc/containerd/config.toml
+            owner: root
+            group: root
+            mode: '0644'
+          notify: restart containerd
+          
+        - name: Enable containerd
+          systemd:
+            name: containerd
+            enabled: yes
+            state: started
+            
+      when: not kubelet_exists.stat.exists
+      
+    - name: Configure kernel parameters for Kubernetes
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+        sysctl_set: yes
+      loop:
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+        
+    - name: Load required kernel modules
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+        
+    - name: Disable swap
+      shell: swapoff -a
+      
+    - name: Remove swap from fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '.*swap.*'
+        state: absent
+        
+    - name: Get join token from master
+      delegate_to: localhost
+      shell: |
+        cd "/home/user/ansible/CascadeProjects/windsurf-project/AtmosRay/Kubernetes Demo"
+        export KUBECONFIG=./kubeconfig
+        kubeadm token create --print-join-command
+      register: join_command_result
+      become: false
+      
+    - name: Reset any existing Kubernetes configuration
+      shell: kubeadm reset -f
+      ignore_errors: yes
+      
+    - name: Clean up existing Kubernetes files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes/kubelet.conf
+        - /etc/kubernetes/pki/ca.crt
+        - /etc/kubernetes/bootstrap-kubelet.conf
+      ignore_errors: yes
+      
+    - name: Join the node to cluster
+      shell: "{{ join_command_result.stdout }}"
+      register: join_result
+      
+    - name: Display join result
+      debug:
+        var: join_result.stdout_lines
+        
+    - name: Enable and start kubelet
+      systemd:
+        name: kubelet
+        enabled: yes
+        state: started
+        
+    - name: Wait for node to be ready
+      delegate_to: localhost
+      shell: |
+        cd "/home/user/ansible/CascadeProjects/windsurf-project/AtmosRay/Kubernetes Demo"
+        export KUBECONFIG=./kubeconfig
+        kubectl get nodes {{ inventory_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      register: node_ready
+      until: node_ready.stdout == "True"
+      retries: 30
+      delay: 10
+      become: false
+      
+  handlers:
+    - name: restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+        
+  post_tasks:
+    - name: Verify node addition
+      delegate_to: localhost
+      shell: |
+        cd "/home/user/ansible/CascadeProjects/windsurf-project/AtmosRay/Kubernetes Demo"
+        export KUBECONFIG=./kubeconfig
+        kubectl get nodes -o wide
+      register: cluster_nodes
+      become: false
+      
+    - name: Display final cluster status
+      debug:
+        var: cluster_nodes.stdout_lines

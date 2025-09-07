@@ -1,0 +1,40 @@
+---
+# Common packages installation
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install essential packages
+  apt:
+    name:
+      - wget
+      - curl
+      - vim
+      - htop
+      - git
+      - unzip
+      - build-essential
+      - python3-pip
+      - python3-dev
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - nfs-common
+    state: present
+    update_cache: yes
+
+- name: Install Docker dependencies
+  apt:
+    name:
+      - containerd
+      - docker.io
+    state: present
+
+- name: Start and enable Docker service
+  systemd:
+    name: docker
+    state: started
+    enabled: yes

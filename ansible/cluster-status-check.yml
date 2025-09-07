@@ -1,0 +1,83 @@
+---
+- name: Cluster Status Check
+  hosts: all
+  become: true
+  gather_facts: false
+  
+  tasks:
+    - name: Check Kubernetes node status
+      shell: kubectl get nodes -o wide
+      when: inventory_hostname in groups['master']
+      register: k8s_nodes
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Check SLURM cluster status
+      shell: sinfo
+      when: inventory_hostname in groups['master']
+      register: slurm_status
+
+    - name: Check AtmosRay deployment status
+      shell: |
+        echo "=== AtmosRay Pods ==="
+        kubectl get pods -l app=atmosray -o wide
+        echo "=== AtmosRay Service ==="
+        kubectl get svc atmosray-service
+        echo "=== AtmosRay Access URL ==="
+        NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+        NODE_PORT=$(kubectl get svc atmosray-service -o jsonpath='{.spec.ports[0].nodePort}')
+        echo "AtmosRay available at: http://$NODE_IP:$NODE_PORT"
+      when: inventory_hostname in groups['master']
+      register: atmosray_status
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Check service status on all nodes
+      shell: |
+        echo "=== Container Runtime Status ==="
+        systemctl is-active containerd
+        echo "=== SLURM Service Status ==="
+        if [ "{{ inventory_hostname }}" = "{{ groups['master'][0] }}" ]; then
+          systemctl is-active slurmctld
+        else
+          systemctl is-active slurmd
+        fi
+        echo "=== Munge Status ==="
+        systemctl is-active munge
+      register: service_status
+
+    - name: Display Kubernetes cluster status
+      debug:
+        var: k8s_nodes.stdout_lines
+      when: inventory_hostname in groups['master']
+
+    - name: Display SLURM cluster status  
+      debug:
+        var: slurm_status.stdout_lines
+      when: inventory_hostname in groups['master']
+
+    - name: Display AtmosRay status
+      debug:
+        var: atmosray_status.stdout_lines
+      when: inventory_hostname in groups['master']
+
+    - name: Display service status for each node
+      debug:
+        msg: "{{ inventory_hostname }}: {{ service_status.stdout_lines }}"
+
+    - name: Test AtmosRay connectivity
+      uri:
+        url: "http://{{ hostvars[groups['master'][0]]['ansible_host'] }}:30500"
+        method: GET
+        timeout: 10
+      register: atmosray_test
+      when: inventory_hostname in groups['master']
+      ignore_errors: yes
+
+    - name: AtmosRay connectivity result
+      debug:
+        msg: |
+          AtmosRay connectivity test: {{ 'SUCCESS' if atmosray_test.status == 200 else 'FAILED' }}
+          Status code: {{ atmosray_test.status | default('Connection failed') }}
+          URL: http://{{ hostvars[groups['master'][0]]['ansible_host'] }}:30500
+      when: inventory_hostname in groups['master']

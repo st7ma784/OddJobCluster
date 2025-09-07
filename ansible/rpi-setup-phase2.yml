@@ -1,0 +1,140 @@
+---
+- name: Kubernetes Installation - Phase 2
+  hosts: rpi_control_plane
+  become: yes
+  vars:
+    ansible_become_timeout: 120
+    ansible_ssh_timeout: 120
+    ansible_timeout: 120
+    k8s_version: "1.29.15-1.1"
+    pod_network_cidr: "10.244.0.0/16"
+  
+  tasks:
+    - name: Add Kubernetes GPG key
+      apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key
+        state: present
+    
+    - name: Add Kubernetes APT repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /"
+        state: present
+        filename: kubernetes
+        update_cache: yes
+    
+    - name: Unhold Kubernetes packages for installation
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: install
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+    
+    - name: Install Kubernetes components
+      apt:
+        name:
+          - kubelet={{ k8s_version }}
+          - kubeadm={{ k8s_version }}
+          - kubectl={{ k8s_version }}
+          - containerd
+        state: present
+        update_cache: no
+        force_apt_get: yes
+        allow_downgrade: yes
+        allow_change_held_packages: yes
+      register: k8s_install
+      retries: 3
+      delay: 5
+      until: k8s_install is succeeded
+    
+    - name: Hold Kubernetes packages at current version
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+    
+    - name: Configure containerd
+      copy:
+        dest: /etc/containerd/config.toml
+        content: |
+          version = 2
+          [plugins]
+            [plugins."io.containerd.grpc.v1.cri"]
+              [plugins."io.containerd.grpc.v1.cri".containerd]
+                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+                  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                    runtime_type = "io.containerd.runc.v2"
+                    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                      SystemdCgroup = true
+              [plugins."io.containerd.grpc.v1.cri".cni]
+                bin_dir = "/opt/cni/bin"
+                conf_dir = "/etc/cni/net.d"
+      notify: restart containerd
+    
+    - name: Configure kubelet to allow swap
+      lineinfile:
+        path: /etc/default/kubelet
+        line: 'KUBELET_EXTRA_ARGS=--fail-swap-on=false'
+        create: yes
+        state: present
+      notify: restart kubelet
+
+    - name: Enable and start kubelet
+      systemd:
+        name: kubelet
+        enabled: yes
+        state: started
+      register: kubelet_start
+      retries: 3
+      delay: 10
+      until: kubelet_start is succeeded
+    
+    - name: Initialize Kubernetes cluster
+      command: kubeadm init --pod-network-cidr={{ pod_network_cidr }} --ignore-preflight-errors=all
+      args:
+        creates: /etc/kubernetes/admin.conf
+      register: kubeadm_init
+      async: 600
+      poll: 15
+      
+    - name: Set up kubeconfig for non-root user
+      command: "{{ item }}"
+      with_items:
+        - mkdir -p /home/{{ ansible_user }}/.kube
+        - cp -i /etc/kubernetes/admin.conf /home/{{ ansible_user }}/.kube/config
+        - chown {{ ansible_user }}:{{ ansible_user }} /home/{{ ansible_user }}/.kube/config
+      when: kubeadm_init is succeeded
+      
+    - name: Install Flannel network plugin
+      command: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+      when: kubeadm_init is succeeded
+      
+    - name: Get join command
+      command: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+      when: kubeadm_init is succeeded
+      
+    - name: Display join command
+      debug:
+        msg: |
+          To join worker nodes to this cluster, run the following command on them:
+          {{ join_command.stdout }}
+      when: join_command is defined and join_command.rc == 0
+
+  handlers:
+    - name: restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+        
+    - name: restart kubelet
+      systemd:
+        name: kubelet
+        state: restarted
+        enabled: yes

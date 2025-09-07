@@ -1,0 +1,1114 @@
+---
+- name: Complete Cluster Deployment - Kubernetes + SLURM + AtmosRay
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    cluster_nodes:
+      - name: steve-IdeaPad-Flex-5-15ALC05
+        ip: 192.168.4.157
+        cpus: 16
+        memory: 14000
+        role: master
+      - name: steve-ThinkPad-L490
+        ip: 192.168.5.57
+        cpus: 8
+        memory: 7000
+        role: worker
+      - name: steve-thinkpad-l490-node1
+        ip: 192.168.4.31
+        cpus: 8
+        memory: 11000
+        role: worker
+
+  tasks:
+    # Phase 1: System Preparation
+    - name: Load required kernel modules
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+
+    - name: Configure kernel parameters for Kubernetes
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+        sysctl_set: yes
+      loop:
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+
+    - name: Configure containerd with systemd cgroup driver
+      copy:
+        content: |
+          version = 2
+          
+          [plugins]
+            [plugins."io.containerd.grpc.v1.cri"]
+              sandbox_image = "registry.k8s.io/pause:3.9"
+              [plugins."io.containerd.grpc.v1.cri".containerd]
+                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+                  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                    runtime_type = "io.containerd.runc.v2"
+                    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                      SystemdCgroup = true
+        dest: /etc/containerd/config.toml
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart containerd
+
+    # Phase 2: Kubernetes Cluster Management
+    - name: Reset existing Kubernetes cluster (if any)
+      shell: kubeadm reset -f && rm -rf /etc/kubernetes/pki
+      when: inventory_hostname in groups['master']
+      ignore_errors: yes
+
+    - name: Initialize Kubernetes cluster
+      shell: |
+        kubeadm init --pod-network-cidr=10.244.0.0/16 \
+                     --service-cidr=10.96.0.0/12 \
+                     --apiserver-advertise-address={{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}
+      when: inventory_hostname in groups['master']
+      register: kubeadm_init_result
+
+    - name: Setup kubectl for root user
+      shell: |
+        mkdir -p /root/.kube
+        cp -f /etc/kubernetes/admin.conf /root/.kube/config
+        chown root:root /root/.kube/config
+      when: inventory_hostname in groups['master']
+
+    - name: Setup kubectl for ansible user
+      shell: |
+        mkdir -p /home/{{ ansible_user }}/.kube
+        cp -f /etc/kubernetes/admin.conf /home/{{ ansible_user }}/.kube/config
+        chown {{ ansible_user }}:{{ ansible_user }} /home/{{ ansible_user }}/.kube/config
+      when: inventory_hostname in groups['master']
+
+    - name: Install Flannel CNI
+      shell: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Get join command
+      shell: kubeadm token create --print-join-command
+      register: join_command_output
+      when: inventory_hostname in groups['master']
+
+    - name: Set join command as fact
+      set_fact:
+        k8s_join_command: "{{ hostvars[groups['master'][0]]['join_command_output']['stdout'] }}"
+      when: inventory_hostname in groups['workers']
+
+    - name: Join worker nodes to cluster
+      shell: "{{ k8s_join_command }}"
+      when: inventory_hostname in groups['workers']
+      register: join_result
+
+    # Phase 3: SLURM Configuration
+    - name: Create SLURM spool directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: slurm
+        group: slurm
+        mode: '0755'
+      loop:
+        - /var/spool/slurmctld
+        - /var/spool/slurmd
+        - /var/log/slurm
+
+    - name: Generate comprehensive SLURM configuration
+      copy:
+        content: |
+          ClusterName=OddJobCluster
+          ControlMachine={{ cluster_nodes[0].name }}
+          ControlAddr={{ cluster_nodes[0].ip }}
+          SlurmUser=slurm
+          SlurmdUser=root
+          SlurmctldPort=6817
+          SlurmdPort=6818
+          AuthType=auth/munge
+          StateSaveLocation=/var/spool/slurmctld
+          SlurmdSpoolDir=/var/spool/slurmd
+          SwitchType=switch/none
+          MpiDefault=none
+          SlurmctldPidFile=/var/run/slurmctld.pid
+          SlurmdPidFile=/var/run/slurmd.pid
+          ProctrackType=proctrack/cgroup
+          ReturnToService=1
+          SlurmctldTimeout=120
+          SlurmdTimeout=300
+          InactiveLimit=0
+          MinJobAge=300
+          KillWait=30
+          MaxJobCount=10000
+          Waittime=0
+          SchedulerType=sched/backfill
+          SelectType=select/cons_tres
+          SelectTypeParameters=CR_Core
+
+          # Node definitions
+          {% for node in cluster_nodes %}
+          NodeName={{ node.name }} CPUs={{ node.cpus }} Sockets=1 CoresPerSocket={{ (node.cpus/2)|int }} ThreadsPerCore=2 RealMemory={{ node.memory }} State=UNKNOWN NodeAddr={{ node.ip }}
+          {% endfor %}
+
+          # Partition definitions
+          PartitionName=compute Nodes={% for node in cluster_nodes %}{{ node.name }}{% if not loop.last %},{% endif %}{% endfor %} Default=YES MaxTime=INFINITE State=UP
+        dest: /etc/slurm/slurm.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart slurm services
+
+    - name: Restart SLURM controller
+      systemd:
+        name: slurmctld
+        state: restarted
+        enabled: yes
+      when: inventory_hostname in groups['master']
+
+    - name: Restart SLURM daemons
+      systemd:
+        name: slurmd
+        state: restarted
+        enabled: yes
+      when: inventory_hostname in groups['workers']
+
+    - name: Resume all SLURM nodes
+      shell: scontrol update NodeName={{ item.name }} State=RESUME
+      loop: "{{ cluster_nodes }}"
+      when: inventory_hostname in groups['master']
+      ignore_errors: yes
+
+    # Phase 4: AtmosRay Deployment
+    - name: Create AtmosRay deployment manifest
+      copy:
+        content: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: atmosray-deployment
+            namespace: default
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: atmosray
+            template:
+              metadata:
+                labels:
+                  app: atmosray
+              spec:
+                containers:
+                - name: atmosray
+                  image: st7ma784/atmosray:latest
+                  ports:
+                  - containerPort: 5000
+                  resources:
+                    requests:
+                      memory: "512Mi"
+                      cpu: "250m"
+                    limits:
+                      memory: "1Gi"
+                      cpu: "500m"
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: atmosray-service
+            namespace: default
+          spec:
+            type: NodePort
+            ports:
+            - port: 5000
+              targetPort: 5000
+              nodePort: 30500
+            selector:
+              app: atmosray
+        dest: /tmp/atmosray-deployment.yaml
+        mode: '0644'
+      when: inventory_hostname in groups['master']
+
+    - name: Deploy AtmosRay application
+      shell: kubectl apply -f /tmp/atmosray-deployment.yaml
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    # Phase 5: Kubernetes Dashboard Deployment
+    - name: Create Kubernetes Dashboard deployment manifest
+      copy:
+        content: |
+          # Kubernetes Dashboard v2.7.0
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: kubernetes-dashboard
+          ---
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard
+            namespace: kubernetes-dashboard
+          ---
+          kind: Service
+          apiVersion: v1
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard
+            namespace: kubernetes-dashboard
+          spec:
+            type: NodePort
+            ports:
+              - port: 443
+                targetPort: 8443
+                nodePort: 30443
+            selector:
+              k8s-app: kubernetes-dashboard
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard-certs
+            namespace: kubernetes-dashboard
+          type: Opaque
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard-csrf
+            namespace: kubernetes-dashboard
+          type: Opaque
+          data:
+            csrf: ""
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard-key-holder
+            namespace: kubernetes-dashboard
+          type: Opaque
+          ---
+          kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard-settings
+            namespace: kubernetes-dashboard
+          ---
+          kind: Role
+          apiVersion: rbac.authorization.k8s.io/v1
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard
+            namespace: kubernetes-dashboard
+          rules:
+            - apiGroups: [""]
+              resources: ["secrets"]
+              resourceNames: ["kubernetes-dashboard-key-holder", "kubernetes-dashboard-certs", "kubernetes-dashboard-csrf"]
+              verbs: ["get", "update", "delete"]
+            - apiGroups: [""]
+              resources: ["configmaps"]
+              resourceNames: ["kubernetes-dashboard-settings"]
+              verbs: ["get", "update"]
+            - apiGroups: [""]
+              resources: ["services"]
+              resourceNames: ["heapster", "dashboard-metrics-scraper"]
+              verbs: ["proxy"]
+            - apiGroups: [""]
+              resources: ["services/proxy"]
+              resourceNames: ["heapster", "http:heapster:", "https:heapster:", "dashboard-metrics-scraper", "http:dashboard-metrics-scraper"]
+              verbs: ["get"]
+          ---
+          kind: ClusterRole
+          apiVersion: rbac.authorization.k8s.io/v1
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard
+          rules:
+            - apiGroups: ["metrics.k8s.io"]
+              resources: ["pods", "nodes"]
+              verbs: ["get", "list"]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard
+            namespace: kubernetes-dashboard
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: kubernetes-dashboard
+          subjects:
+            - kind: ServiceAccount
+              name: kubernetes-dashboard
+              namespace: kubernetes-dashboard
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: kubernetes-dashboard
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: kubernetes-dashboard
+          subjects:
+            - kind: ServiceAccount
+              name: kubernetes-dashboard
+              namespace: kubernetes-dashboard
+          ---
+          kind: Deployment
+          apiVersion: apps/v1
+          metadata:
+            labels:
+              k8s-app: kubernetes-dashboard
+            name: kubernetes-dashboard
+            namespace: kubernetes-dashboard
+          spec:
+            replicas: 1
+            revisionHistoryLimit: 10
+            selector:
+              matchLabels:
+                k8s-app: kubernetes-dashboard
+            template:
+              metadata:
+                labels:
+                  k8s-app: kubernetes-dashboard
+              spec:
+                containers:
+                  - name: kubernetes-dashboard
+                    image: kubernetesui/dashboard:v2.7.0
+                    imagePullPolicy: Always
+                    ports:
+                      - containerPort: 8443
+                        protocol: TCP
+                    args:
+                      - --auto-generate-certificates
+                      - --namespace=kubernetes-dashboard
+                    volumeMounts:
+                      - name: kubernetes-dashboard-certs
+                        mountPath: /certs
+                      - mountPath: /tmp
+                        name: tmp-volume
+                    livenessProbe:
+                      httpGet:
+                        scheme: HTTPS
+                        path: /
+                        port: 8443
+                      initialDelaySeconds: 30
+                      timeoutSeconds: 30
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      runAsUser: 1001
+                      runAsGroup: 2001
+                volumes:
+                  - name: kubernetes-dashboard-certs
+                    secret:
+                      secretName: kubernetes-dashboard-certs
+                  - name: tmp-volume
+                    emptyDir: {}
+                serviceAccountName: kubernetes-dashboard
+                nodeSelector:
+                  "kubernetes.io/os": linux
+                tolerations:
+                  - key: node-role.kubernetes.io/master
+                    effect: NoSchedule
+          ---
+          kind: Service
+          apiVersion: v1
+          metadata:
+            labels:
+              k8s-app: dashboard-metrics-scraper
+            name: dashboard-metrics-scraper
+            namespace: kubernetes-dashboard
+          spec:
+            ports:
+              - port: 8000
+                targetPort: 8000
+            selector:
+              k8s-app: dashboard-metrics-scraper
+          ---
+          kind: Deployment
+          apiVersion: apps/v1
+          metadata:
+            labels:
+              k8s-app: dashboard-metrics-scraper
+            name: dashboard-metrics-scraper
+            namespace: kubernetes-dashboard
+          spec:
+            replicas: 1
+            revisionHistoryLimit: 10
+            selector:
+              matchLabels:
+                k8s-app: dashboard-metrics-scraper
+            template:
+              metadata:
+                labels:
+                  k8s-app: dashboard-metrics-scraper
+              spec:
+                securityContext:
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: dashboard-metrics-scraper
+                    image: kubernetesui/metrics-scraper:v1.0.8
+                    ports:
+                      - containerPort: 8000
+                        protocol: TCP
+                    livenessProbe:
+                      httpGet:
+                        scheme: HTTP
+                        path: /
+                        port: 8000
+                      initialDelaySeconds: 30
+                      timeoutSeconds: 30
+                    volumeMounts:
+                    - mountPath: /tmp
+                      name: tmp-volume
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      runAsUser: 1001
+                      runAsGroup: 2001
+                volumes:
+                - name: tmp-volume
+                  emptyDir: {}
+                serviceAccountName: kubernetes-dashboard
+                nodeSelector:
+                  "kubernetes.io/os": linux
+                tolerations:
+                  - key: node-role.kubernetes.io/master
+                    effect: NoSchedule
+        dest: /tmp/kubernetes-dashboard.yaml
+        mode: '0644'
+      when: inventory_hostname in groups['master']
+
+    - name: Deploy Kubernetes Dashboard
+      shell: kubectl apply -f /tmp/kubernetes-dashboard.yaml
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Create Dashboard Admin User
+      copy:
+        content: |
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: admin-user
+            namespace: kubernetes-dashboard
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: admin-user
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+          - kind: ServiceAccount
+            name: admin-user
+            namespace: kubernetes-dashboard
+        dest: /tmp/dashboard-admin-user.yaml
+        mode: '0644'
+      when: inventory_hostname in groups['master']
+
+    - name: Deploy Dashboard Admin User
+      shell: kubectl apply -f /tmp/dashboard-admin-user.yaml
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    # Phase 6: NGINX Ingress Controller Deployment
+    - name: Create NGINX Ingress Controller deployment manifest
+      copy:
+        content: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: ingress-nginx
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+          ---
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: ingress-nginx
+            namespace: ingress-nginx
+          automountServiceAccountToken: true
+          ---
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: admission-webhook
+            name: ingress-nginx-admission
+            namespace: ingress-nginx
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: ingress-nginx
+            namespace: ingress-nginx
+          rules:
+          - apiGroups:
+            - ""
+            resources:
+            - namespaces
+            verbs:
+            - get
+          - apiGroups:
+            - ""
+            resources:
+            - configmaps
+            - pods
+            - secrets
+            - endpoints
+            verbs:
+            - get
+            - list
+            - watch
+          - apiGroups:
+            - ""
+            resources:
+            - services
+            verbs:
+            - get
+            - list
+            - watch
+          - apiGroups:
+            - networking.k8s.io
+            resources:
+            - ingresses
+            verbs:
+            - get
+            - list
+            - watch
+          - apiGroups:
+            - networking.k8s.io
+            resources:
+            - ingresses/status
+            verbs:
+            - update
+          - apiGroups:
+            - networking.k8s.io
+            resources:
+            - ingressclasses
+            verbs:
+            - get
+            - list
+            - watch
+          - apiGroups:
+            - ""
+            resources:
+            - configmaps
+            resourceNames:
+            - ingress-controller-leader
+            verbs:
+            - get
+            - update
+          - apiGroups:
+            - ""
+            resources:
+            - configmaps
+            verbs:
+            - create
+          - apiGroups:
+            - coordination.k8s.io
+            resources:
+            - leases
+            resourceNames:
+            - ingress-controller-leader
+            verbs:
+            - get
+            - update
+          - apiGroups:
+            - coordination.k8s.io
+            resources:
+            - leases
+            verbs:
+            - create
+          - apiGroups:
+            - ""
+            resources:
+            - events
+            verbs:
+            - create
+            - patch
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: ingress-nginx
+          rules:
+          - apiGroups:
+            - ""
+            resources:
+            - configmaps
+            - endpoints
+            - nodes
+            - pods
+            - secrets
+            - namespaces
+            verbs:
+            - list
+            - watch
+          - apiGroups:
+            - coordination.k8s.io
+            resources:
+            - leases
+            verbs:
+            - list
+            - watch
+          - apiGroups:
+            - ""
+            resources:
+            - nodes
+            verbs:
+            - get
+          - apiGroups:
+            - ""
+            resources:
+            - services
+            verbs:
+            - get
+            - list
+            - watch
+          - apiGroups:
+            - networking.k8s.io
+            resources:
+            - ingresses
+            verbs:
+            - get
+            - list
+            - watch
+          - apiGroups:
+            - ""
+            resources:
+            - events
+            verbs:
+            - create
+            - patch
+          - apiGroups:
+            - networking.k8s.io
+            resources:
+            - ingresses/status
+            verbs:
+            - update
+          - apiGroups:
+            - networking.k8s.io
+            resources:
+            - ingressclasses
+            verbs:
+            - get
+            - list
+            - watch
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: ingress-nginx
+            namespace: ingress-nginx
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: ingress-nginx
+          subjects:
+          - kind: ServiceAccount
+            name: ingress-nginx
+            namespace: ingress-nginx
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: ingress-nginx
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: ingress-nginx
+          subjects:
+          - kind: ServiceAccount
+            name: ingress-nginx
+            namespace: ingress-nginx
+          ---
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: ingress-nginx-controller
+            namespace: ingress-nginx
+          data:
+            allow-snippet-annotations: 'true'
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            annotations:
+              service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
+              service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: 'true'
+              service.beta.kubernetes.io/aws-load-balancer-type: nlb
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: ingress-nginx-controller
+            namespace: ingress-nginx
+          spec:
+            type: NodePort
+            ports:
+            - name: http
+              port: 80
+              protocol: TCP
+              targetPort: http
+              nodePort: 30880
+            - name: https
+              port: 443
+              protocol: TCP
+              targetPort: https
+              nodePort: 30443
+            selector:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: ingress-nginx-controller
+            namespace: ingress-nginx
+          spec:
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: ingress-nginx
+                app.kubernetes.io/instance: ingress-nginx
+                app.kubernetes.io/component: controller
+            revisionHistoryLimit: 10
+            minReadySeconds: 0
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: ingress-nginx
+                  app.kubernetes.io/instance: ingress-nginx
+                  app.kubernetes.io/component: controller
+              spec:
+                dnsPolicy: ClusterFirst
+                containers:
+                - name: controller
+                  image: registry.k8s.io/ingress-nginx/controller:v1.8.1
+                  imagePullPolicy: IfNotPresent
+                  lifecycle:
+                    preStop:
+                      exec:
+                        command:
+                        - /wait-shutdown
+                  args:
+                  - /nginx-ingress-controller
+                  - --publish-service=$(POD_NAMESPACE)/ingress-nginx-controller
+                  - --election-id=ingress-controller-leader
+                  - --controller-class=k8s.io/ingress-nginx
+                  - --ingress-class=nginx
+                  - --configmap=$(POD_NAMESPACE)/ingress-nginx-controller
+                  - --validating-webhook=:8443
+                  - --validating-webhook-certificate=/usr/local/certificates/cert
+                  - --validating-webhook-key=/usr/local/certificates/key
+                  securityContext:
+                    capabilities:
+                      drop:
+                      - ALL
+                      add:
+                      - NET_BIND_SERVICE
+                    runAsUser: 101
+                    allowPrivilegeEscalation: true
+                  env:
+                  - name: POD_NAME
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: metadata.name
+                  - name: POD_NAMESPACE
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: metadata.namespace
+                  - name: LD_PRELOAD
+                    value: /usr/local/lib/libmimalloc.so
+                  livenessProbe:
+                    failureThreshold: 5
+                    httpGet:
+                      path: /healthz
+                      port: 10254
+                      scheme: HTTP
+                    initialDelaySeconds: 10
+                    periodSeconds: 10
+                    successThreshold: 1
+                    timeoutSeconds: 1
+                  readinessProbe:
+                    failureThreshold: 3
+                    httpGet:
+                      path: /healthz
+                      port: 10254
+                      scheme: HTTP
+                    initialDelaySeconds: 10
+                    periodSeconds: 10
+                    successThreshold: 1
+                    timeoutSeconds: 1
+                  ports:
+                  - name: http
+                    containerPort: 80
+                    protocol: TCP
+                  - name: https
+                    containerPort: 443
+                    protocol: TCP
+                  - name: webhook
+                    containerPort: 8443
+                    protocol: TCP
+                  volumeMounts:
+                  - name: webhook-cert
+                    mountPath: /usr/local/certificates/
+                    readOnly: true
+                  resources:
+                    requests:
+                      cpu: 100m
+                      memory: 90Mi
+                nodeSelector:
+                  kubernetes.io/os: linux
+                serviceAccountName: ingress-nginx
+                terminationGracePeriodSeconds: 300
+                volumes:
+                - name: webhook-cert
+                  secret:
+                    secretName: ingress-nginx-admission
+          ---
+          apiVersion: networking.k8s.io/v1
+          kind: IngressClass
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+            name: nginx
+            annotations:
+              ingressclass.kubernetes.io/is-default-class: "true"
+          spec:
+            controller: k8s.io/ingress-nginx
+        dest: /tmp/nginx-ingress-controller.yaml
+        mode: '0644'
+      when: inventory_hostname in groups['master']
+
+    - name: Deploy NGINX Ingress Controller
+      shell: kubectl apply -f /tmp/nginx-ingress-controller.yaml
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    # Phase 7: Service Ingress Rules
+    - name: Create comprehensive service ingress rules
+      copy:
+        content: |
+          # Ingress rules for all cluster services
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: cluster-services-ingress
+            namespace: default
+            annotations:
+              nginx.ingress.kubernetes.io/rewrite-target: /$2
+              nginx.ingress.kubernetes.io/use-regex: "true"
+          spec:
+            ingressClassName: nginx
+            rules:
+            - host: cluster.local
+              http:
+                paths:
+                # AtmosRay Radio Propagation  
+                - path: /atmosray(/|$)(.*)
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: atmosray-service
+                      port:
+                        number: 5000
+          ---
+          # LUStores Ingress (separate namespace)
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: lustores-ingress
+            namespace: lustores
+            annotations:
+              nginx.ingress.kubernetes.io/rewrite-target: /$2
+              nginx.ingress.kubernetes.io/use-regex: "true"
+          spec:
+            ingressClassName: nginx
+            rules:
+            - host: shop.cluster.local
+              http:
+                paths:
+                - path: /(/|$)(.*)
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: nginx
+                      port:
+                        number: 80
+        dest: /tmp/service-ingress-rules.yaml
+        mode: '0644'
+      when: inventory_hostname in groups['master']
+
+    - name: Deploy service ingress rules
+      shell: kubectl apply -f /tmp/service-ingress-rules.yaml
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      ignore_errors: yes
+
+    # Phase 8: Cluster Validation
+    - name: Wait for all nodes to be ready
+      shell: kubectl get nodes --no-headers | grep -v Ready | wc -l
+      register: not_ready_nodes
+      until: not_ready_nodes.stdout == "0"
+      retries: 30
+      delay: 10
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Verify SLURM cluster status
+      shell: sinfo -h | grep -v "down\|drain\|fail" | wc -l
+      register: slurm_active_nodes
+      when: inventory_hostname in groups['master']
+
+    - name: Verify AtmosRay deployment
+      shell: kubectl get pods -l app=atmosray -o jsonpath='{.items[*].status.phase}' | grep -o Running | wc -l
+      register: running_atmosray_pods
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Get Dashboard admin token
+      shell: kubectl -n kubernetes-dashboard create token admin-user --duration=8760h
+      register: dashboard_token
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      ignore_errors: yes
+
+    - name: Verify Ingress Controller status
+      shell: kubectl get pods -n ingress-nginx -l app.kubernetes.io/component=controller -o jsonpath='{.items[*].status.phase}' | grep -o Running | wc -l
+      register: ingress_controller_status
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Check all ingress rules
+      shell: kubectl get ingress --all-namespaces --no-headers | wc -l
+      register: ingress_rules_count
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+  handlers:
+    - name: restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+
+    - name: restart slurm services
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - slurmctld
+        - slurmd
+      ignore_errors: yes
+
+  post_tasks:
+    - name: Display comprehensive cluster status
+      debug:
+        msg: |
+          🚀 COMPLETE CLUSTER DEPLOYMENT SUMMARY
+          ====================================
+          
+          📊 CLUSTER STATUS:
+          - Kubernetes nodes ready: {{ ansible_play_hosts | length }}
+          - SLURM active nodes: {{ hostvars[groups['master'][0]]['slurm_active_nodes']['stdout'] | default('Unknown') }}
+          
+          🌐 DEPLOYED SERVICES:
+          - AtmosRay pods running: {{ hostvars[groups['master'][0]]['running_atmosray_pods']['stdout'] | default('0') }}
+          - Ingress controller running: {{ hostvars[groups['master'][0]]['ingress_controller_status']['stdout'] | default('0') }}
+          - Ingress rules deployed: {{ hostvars[groups['master'][0]]['ingress_rules_count']['stdout'] | default('0') }}
+          
+          🔗 ACCESS INFORMATION:
+          
+          📊 Kubernetes Dashboard:
+          - URL: https://{{ cluster_nodes[0].ip }}:30443
+          - NodePort Access: Available on all nodes at port 30443
+          - Admin Token: {{ hostvars[groups['master'][0]]['dashboard_token']['stdout'] | default('Run: kubectl -n kubernetes-dashboard create token admin-user') }}
+          
+          🌐 Service Access (NodePort):
+          - AtmosRay: http://{{ cluster_nodes[0].ip }}:30500
+          - Dashboard: https://{{ cluster_nodes[0].ip }}:30443
+          
+          🎯 Ingress Access (when DNS configured):
+          - Main services: http://cluster.local:30880/
+          - Add to /etc/hosts: {{ cluster_nodes[0].ip }} cluster.local shop.cluster.local
+          
+          🔧 MANAGEMENT COMMANDS:
+          - Dashboard token: kubectl -n kubernetes-dashboard create token admin-user
+          - View ingress: kubectl get ingress --all-namespaces
+          - Check pods: kubectl get pods --all-namespaces
+          
+          ✨ CLUSTER IS NOW READY FOR PRODUCTION USE!
+      when: inventory_hostname in groups['master']

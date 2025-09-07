@@ -1,0 +1,232 @@
+---
+- name: Deploy Kubernetes Dashboard and Ingress Controller
+  hosts: master
+  become: true
+  gather_facts: false
+  vars:
+    master_ip: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+    
+  tasks:
+    - name: Ensure kubectl is working
+      shell: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: kubectl_test
+      
+    - name: Display current cluster nodes
+      debug:
+        var: kubectl_test.stdout_lines
+
+    # Deploy Kubernetes Dashboard
+    - name: Create Kubernetes Dashboard namespace
+      shell: kubectl create namespace kubernetes-dashboard --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Deploy Kubernetes Dashboard v2.7.0
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Patch Dashboard service to use NodePort
+      shell: |
+        kubectl patch svc kubernetes-dashboard -n kubernetes-dashboard -p '{"spec":{"type":"NodePort","ports":[{"port":443,"targetPort":8443,"nodePort":30443}]}}'
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Create Dashboard Admin User
+      copy:
+        content: |
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: admin-user
+            namespace: kubernetes-dashboard
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: admin-user
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+          - kind: ServiceAccount
+            name: admin-user
+            namespace: kubernetes-dashboard
+        dest: /tmp/dashboard-admin-user.yaml
+        mode: '0644'
+
+    - name: Apply Dashboard Admin User
+      shell: kubectl apply -f /tmp/dashboard-admin-user.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    # Deploy NGINX Ingress Controller
+    - name: Create Ingress NGINX namespace
+      shell: kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Deploy NGINX Ingress Controller
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/baremetal/deploy.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Patch Ingress Controller service for custom NodePorts
+      shell: |
+        kubectl patch svc ingress-nginx-controller -n ingress-nginx -p '{"spec":{"ports":[{"name":"http","port":80,"targetPort":"http","nodePort":30880},{"name":"https","port":443,"targetPort":"https","nodePort":30443}]}}'
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      ignore_errors: yes
+
+    # Wait for deployments to be ready
+    - name: Wait for Dashboard deployment to be ready
+      shell: kubectl rollout status deployment/kubernetes-dashboard -n kubernetes-dashboard --timeout=300s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Wait for Ingress Controller deployment to be ready
+      shell: kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=300s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    # Create sample ingress rules for existing services
+    - name: Create sample service ingress rules
+      copy:
+        content: |
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: cluster-services-ingress
+            namespace: default
+            annotations:
+              nginx.ingress.kubernetes.io/rewrite-target: /$2
+              nginx.ingress.kubernetes.io/use-regex: "true"
+          spec:
+            ingressClassName: nginx
+            rules:
+            - host: cluster.local
+              http:
+                paths:
+                - path: /atmosray(/|$)(.*)
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: atmosray-service
+                      port:
+                        number: 5000
+            - host: dashboard.cluster.local
+              http:
+                paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: kubernetes-dashboard
+                      port:
+                        number: 443
+        dest: /tmp/sample-ingress-rules.yaml
+        mode: '0644'
+
+    - name: Apply sample ingress rules
+      shell: kubectl apply -f /tmp/sample-ingress-rules.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      ignore_errors: yes
+
+    # Generate access token and information
+    - name: Generate Dashboard admin token
+      shell: kubectl -n kubernetes-dashboard create token admin-user --duration=8760h
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: dashboard_token
+      ignore_errors: yes
+
+    - name: Get cluster service information
+      shell: kubectl get services --all-namespaces -o wide | grep NodePort
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: nodeport_services
+
+    - name: Get ingress information
+      shell: kubectl get ingress --all-namespaces
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: ingress_info
+      ignore_errors: yes
+
+    # Generate access script
+    - name: Create comprehensive access script
+      copy:
+        content: |
+          #!/bin/bash
+          # Generated Cluster Access Script
+          
+          echo "🚀 Kubernetes Cluster Access Information"
+          echo "======================================="
+          echo ""
+          
+          echo "📊 KUBERNETES DASHBOARD:"
+          echo "URL: https://{{ master_ip }}:30443"
+          echo "Admin Token:"
+          echo "{{ dashboard_token.stdout | default('Run: kubectl -n kubernetes-dashboard create token admin-user') }}"
+          echo ""
+          
+          echo "🌐 INGRESS CONTROLLER:"
+          echo "HTTP:  http://{{ master_ip }}:30880"
+          echo "HTTPS: https://{{ master_ip }}:30880"
+          echo ""
+          
+          echo "🔗 ADD TO /etc/hosts FOR INGRESS:"
+          echo "{{ master_ip }} cluster.local dashboard.cluster.local shop.cluster.local"
+          echo ""
+          
+          echo "📋 NODEPORT SERVICES:"
+          {{ nodeport_services.stdout }}
+          echo ""
+          
+          echo "🎯 INGRESS RULES:"
+          {{ ingress_info.stdout | default('No ingress rules found') }}
+          echo ""
+          
+          echo "🔧 USEFUL COMMANDS:"
+          echo "# Get new dashboard token:"
+          echo "kubectl -n kubernetes-dashboard create token admin-user"
+          echo ""
+          echo "# Port-forward dashboard:"
+          echo "kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard 8443:443"
+          echo ""
+          echo "# Check ingress status:"
+          echo "kubectl get ingress --all-namespaces"
+          echo ""
+          echo "# View all services:"
+          echo "kubectl get services --all-namespaces"
+        dest: /root/cluster-access-info.sh
+        mode: '0755'
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          🎉 DEPLOYMENT COMPLETE!
+          ======================
+          
+          📊 Kubernetes Dashboard: https://{{ master_ip }}:30443
+          🌐 Ingress Controller: http://{{ master_ip }}:30880
+          
+          🔑 Dashboard Admin Token:
+          {{ dashboard_token.stdout | default('Generate with: kubectl -n kubernetes-dashboard create token admin-user') }}
+          
+          📋 NodePort Services:
+          {{ nodeport_services.stdout }}
+          
+          🎯 Next Steps:
+          1. Access dashboard at https://{{ master_ip }}:30443
+          2. Add DNS entries: {{ master_ip }} cluster.local
+          3. Test ingress: http://cluster.local:30880/atmosray/
+          4. Check access script: /root/cluster-access-info.sh
+          
+          ✨ Ingress and Dashboard successfully deployed!

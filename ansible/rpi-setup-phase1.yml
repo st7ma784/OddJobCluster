@@ -1,0 +1,66 @@
+---
+- name: Initial Raspberry Pi Kubernetes Setup - Phase 1
+  hosts: rpi_control_plane
+  become: yes
+  vars:
+    ansible_become_timeout: 120
+    ansible_ssh_timeout: 120
+    ansible_timeout: 120
+  
+  tasks:
+    - name: Create swap file (1GB)
+      command: dd if=/dev/zero of=/swapfile bs=1M count=1024
+      args:
+        creates: /swapfile
+      register: create_swap
+      changed_when: create_swap.rc == 0
+      
+    - name: Set swap file permissions
+      file:
+        path: /swapfile
+        mode: '0600'
+        owner: root
+        group: root
+      when: create_swap is succeeded
+      
+    - name: Initialize swap
+      command: mkswap /swapfile
+      when: create_swap is succeeded
+      
+    - name: Enable swap
+      command: swapon /swapfile
+      when: create_swap is succeeded
+      
+    - name: Make swap permanent
+      lineinfile:
+        path: /etc/fstab
+        line: '/swapfile none swap sw 0 0'
+        state: present
+        create: yes
+      when: not lookup('file', '/swapfile', errors='ignore')
+      
+    - name: Update apt cache (with retries)
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      register: apt_update
+      retries: 3
+      delay: 10
+      until: apt_update is succeeded
+      
+    - name: Install minimal required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: no
+        install_recommends: no
+        force_apt_get: yes
+      register: apt_install
+      retries: 3
+      delay: 5
+      until: apt_install is succeeded
