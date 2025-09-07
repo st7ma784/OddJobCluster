@@ -1,15 +1,28 @@
 # Heterogeneous Kubernetes SLURM Cluster
 
-A comprehensive cluster deployment supporting both x86 and ARM architectures, including Raspberry Pi, Android devices, and NVIDIA Jetson platforms.
+A comprehensive cluster deployment supporting both x86 and ARM architectures, including Raspberry Pi, Android devices, and NVIDIA Jetson platforms. Now featuring AtmosRay radio propagation simulation, intruder detection systems, and full Kubernetes Dashboard integration.
 
 ## 🚀 Quick Start
 
-### Complete Cluster Deployment
+### Complete Cluster Deployment with Ansible
 ```bash
 # Clone and deploy full heterogeneous cluster
 git clone <repository>
 cd windsurf-project
 
+# Complete automated deployment with services
+cd ansible
+ansible-playbook -i inventory.ini complete-cluster-deployment.yml
+
+# Deploy only ingress and dashboard to existing cluster
+ansible-playbook -i inventory.ini deploy-ingress-dashboard.yml
+
+# Add new nodes dynamically
+ansible-playbook -i inventory.ini add-node-playbook.yml -e target_node=new-node-ip
+```
+
+### Legacy Script Deployment
+```bash
 # Full deployment (x86 + ARM + Android)
 ./scripts/deploy-complete-cluster.sh --full
 
@@ -29,6 +42,42 @@ cd windsurf-project
 
 # Fix common issues
 ./scripts/validate-cluster-deployment.sh --fix-issues
+
+# Ansible-based cluster status
+cd ansible && ansible-playbook -i inventory.ini cluster-status-check.yml
+```
+
+### New Service Deployments
+
+#### AtmosRay Radio Propagation System
+```bash
+# Automated deployment via Ansible (included in complete-cluster-deployment.yml)
+# Manual deployment
+export KUBECONFIG=./kubeconfig
+kubectl apply -f AtmosRay/Kubernetes\ Demo/kubernetes-configs/
+
+# Access AtmosRay services
+kubectl port-forward svc/radio-server-service 9080:8080 -n radio-propagation
+# Web UI: http://localhost:9080
+```
+
+#### Intruder Detection System
+```bash
+# Deploy to nodes with cameras
+kubectl apply -f kubernetes/manifests/intruder-detection.yaml
+
+# Access detection dashboard
+kubectl port-forward svc/intruder-detection-service 8080:8080 -n security
+```
+
+#### Kubernetes Dashboard & Ingress
+```bash
+# Automated via Ansible
+ansible-playbook -i inventory.ini deploy-ingress-dashboard.yml
+
+# Manual access
+kubectl port-forward svc/kubernetes-dashboard 8080:443 -n kubernetes-dashboard
+# Dashboard: https://localhost:8080
 ```
 
 ### Add ARM Devices

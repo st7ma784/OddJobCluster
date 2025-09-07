@@ -1,5 +1,76 @@
 # Kubernetes Cluster with SLURM and Jupyter - Deployment Guide
 
+## 🚀 Quick Deploy (Recommended)
+
+### Complete Automated Deployment with Ansible
+
+```bash
+# Clone repository and navigate to ansible directory
+git clone <repository>
+cd windsurf-project/ansible
+
+# Complete zero-touch deployment (15-20 minutes)
+ansible-playbook -i inventory.ini complete-cluster-deployment.yml
+
+# Monitor deployment progress
+ansible-playbook -i inventory.ini cluster-status-check.yml
+```
+
+**This deploys:**
+- ✅ Kubernetes 1.28+ cluster with containerd runtime
+- ✅ AtmosRay radio propagation simulation system
+- ✅ LUStores e-commerce platform
+- ✅ Intruder detection security system
+- ✅ Kubernetes Dashboard v2.7.0 with admin access
+- ✅ NGINX Ingress Controller v1.8.1
+- ✅ Complete monitoring stack (Prometheus/Grafana)
+
+### Modular Deployment Options
+
+#### Deploy Only Ingress and Dashboard
+```bash
+# For existing Kubernetes clusters
+ansible-playbook -i inventory.ini deploy-ingress-dashboard.yml
+```
+
+#### Add New Worker Nodes
+```bash
+# Dynamic node addition with validation
+ansible-playbook -i inventory.ini add-node-playbook.yml -e target_node=192.168.4.31
+```
+
+#### Cluster Health and Status
+```bash
+# Comprehensive cluster validation
+ansible-playbook -i inventory.ini cluster-status-check.yml
+```
+
+## 📋 Prerequisites
+
+### System Requirements
+- **Operating System**: Ubuntu 22.04 LTS or compatible
+- **Architecture**: x86_64 (primary), ARM64 (secondary)
+- **Memory**: 4GB+ per node (8GB+ recommended for master)
+- **CPU**: 2+ cores per node (4+ recommended)
+- **Storage**: 20GB+ free space per node
+- **Network**: Gigabit Ethernet recommended
+
+### Network Configuration
+- **Master Node**: Static IP address
+- **Worker Nodes**: Static or DHCP reservations
+- **Port Access**: 6443, 2379-2380, 10250-10252, 30000-32767
+- **SSH Access**: Key-based authentication preferred
+
+### Software Prerequisites
+```bash
+# Install Ansible (on deployment machine)
+sudo apt update
+sudo apt install ansible sshpass
+
+# Verify Ansible installation
+ansible --version
+```
+
 ## Android Cluster Task Server Deployment
 
 ### Quick Deploy
@@ -39,15 +110,6 @@
 - `GET /status` - Get cluster status
 - `GET /tasks` - List all tasks
 - `GET /task/{task_id}` - Get specific task status
-
----
-
-This guide covers the deployment process for the heterogeneous Kubernetes SLURM cluster supporting both x86 and ARM architectures.
-
-## Table of Contents
-1. [Prerequisites](#prerequisites)
-2. [Hardware Requirements](#hardware-requirements)
-3. [Network Setup](#network-setup)
 4. [Initial Server Setup](#initial-server-setup)
 5. [Ansible Setup](#ansible-setup)
 6. [Deploying the Cluster](#deploying-the-cluster)

@@ -2,9 +2,18 @@
 
 ## Getting Started
 - [🏠 Home](README.md)
-- [🏗️ Architecture](ARCHITECTURE.md)
+- [📋 Project Summary](PROJECT_SUMMARY.md)
+- [� New Features & Updates](NEW_FEATURES.md)
+- [�🏗️ Architecture](ARCHITECTURE.md)
 - [⚡ Quick Install](QUICK_INSTALL.md)
 - [🚀 Deployment Guide](DEPLOYMENT.md)
+- [🌐 Service Access Guide](SERVICE_ACCESS.md)
+
+## Service Integration
+- [📡 AtmosRay Radio System](guides/atmosray-integration.md)
+- [🛒 LUStores E-commerce](guides/lustores-platform.md)
+- [🔒 Security Monitoring](guides/security-services.md)
+- [📊 Kubernetes Dashboard](guides/dashboard-access.md)
 
 ## Android Cluster
 - [📱 Android Deployment](guides/android-deployment.md)
