@@ -1,0 +1,297 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security
+  labels:
+    name: security
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intruder-detection
+  namespace: security
+  labels:
+    app: intruder-detection
+    component: security-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: intruder-detection
+  template:
+    metadata:
+      labels:
+        app: intruder-detection
+        component: security-monitoring
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: steve-ideapad-flex-5-15alc05
+      containers:
+      - name: intruder-detection
+        image: st7ma784/intruderdetection:cpu
+        ports:
+        - containerPort: 8080
+          name: web-interface
+        - containerPort: 8090
+          name: camera-stream
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: CAMERA_DEVICE
+          value: "/dev/video0"
+        - name: DETECTION_SENSITIVITY
+          value: "medium"
+        - name: ALERT_WEBHOOK
+          value: "http://radio-server-service.radio-propagation.svc.cluster.local:8080/api/alerts"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: WEB_PORT
+          value: "8080"
+        - name: STREAM_PORT
+          value: "8090"
+        - name: METRICS_PORT
+          value: "9090"
+        - name: CPU_ONLY
+          value: "true"
+        - name: MAX_MEMORY_MB
+          value: "5120"
+        - name: OPENCV_THREADS
+          value: "6"
+        - name: MODEL_OPTIMIZATION
+          value: "cpu"
+        - name: PROCESSING_FPS
+          value: "5"
+        - name: MAX_CONCURRENT_STREAMS
+          value: "1"
+        volumeMounts:
+        - name: camera-device
+          mountPath: /dev/video0
+        - name: camera-device1
+          mountPath: /dev/video1
+          readOnly: false
+        - name: recordings
+          mountPath: /app/recordings
+        - name: config
+          mountPath: /app/config
+        securityContext:
+          privileged: true
+          runAsUser: 0
+          capabilities:
+            add:
+              - SYS_ADMIN
+              - DAC_OVERRIDE
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1500m"
+          limits:
+            memory: "6Gi"
+            cpu: "3000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: camera-device
+        hostPath:
+          path: /dev/video0
+          type: CharDevice
+      - name: camera-device1
+        hostPath:
+          path: /dev/video1
+          type: CharDevice
+      - name: recordings
+        hostPath:
+          path: /var/lib/intruder-detection/recordings
+          type: DirectoryOrCreate
+      - name: config
+        configMap:
+          name: intruder-detection-config
+      tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intruder-detection-service
+  namespace: security
+  labels:
+    app: intruder-detection
+spec:
+  selector:
+    app: intruder-detection
+  ports:
+    - name: web-interface
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30085
+    - name: camera-stream
+      protocol: TCP
+      port: 8090
+      targetPort: 8090
+      nodePort: 30086
+    - name: metrics
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
+      nodePort: 30087
+  type: NodePort
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intruder-detection-config
+  namespace: security
+data:
+  detection.conf: |
+    # Intruder Detection Configuration
+    camera_resolution=1280x720
+    detection_threshold=0.7
+    motion_sensitivity=medium
+    recording_duration=30
+    max_recordings=100
+    cleanup_after_days=7
+    
+    # AI Model Configuration
+    model_path=/app/models/detection_model.pb
+    confidence_threshold=0.8
+    nms_threshold=0.4
+    
+    # Alert Configuration
+    alert_cooldown=300
+    max_alerts_per_hour=10
+    
+    # Performance Settings
+    processing_fps=10
+    max_concurrent_streams=2
+
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        upstream camera_backend {
+            server localhost:8090;
+        }
+        
+        server {
+            listen 8080;
+            
+            location / {
+                root /app/static;
+                index index.html;
+            }
+            
+            location /api/ {
+                proxy_pass http://localhost:8080;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+            
+            location /stream {
+                proxy_pass http://camera_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+            }
+        }
+    }
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: intruder-detection-ingress
+  namespace: security
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+spec:
+  rules:
+  - host: cluster.local
+    http:
+      paths:
+      - path: /security
+        pathType: Prefix
+        backend:
+          service:
+            name: intruder-detection-service
+            port:
+              number: 8080
+      - path: /camera-stream
+        pathType: Prefix
+        backend:
+          service:
+            name: intruder-detection-service
+            port:
+              number: 8090
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: intruder-detection
+  namespace: security
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: security
+  name: intruder-detection-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: intruder-detection-binding
+  namespace: security
+subjects:
+- kind: ServiceAccount
+  name: intruder-detection
+  namespace: security
+roleRef:
+  kind: Role
+  name: intruder-detection-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: intruder-recordings-pvc
+  namespace: security
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard

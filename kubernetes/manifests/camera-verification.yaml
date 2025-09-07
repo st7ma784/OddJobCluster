@@ -1,0 +1,212 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: camera-testing
+  labels:
+    name: camera-testing
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: camera-capability-test
+  namespace: camera-testing
+  labels:
+    app: camera-test
+spec:
+  selector:
+    matchLabels:
+      app: camera-test
+  template:
+    metadata:
+      labels:
+        app: camera-test
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: camera-test
+        image: ubuntu:22.04
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          echo "🎥 Camera Capability Test on $(hostname)"
+          echo "========================================"
+          
+          # Install required tools
+          apt-get update -qq
+          apt-get install -y v4l-utils lsusb usbutils -qq
+          
+          # Test 1: Device Detection
+          echo "📹 Video device detection:"
+          ls -la /dev/video* 2>/dev/null || echo "❌ No video devices found"
+          
+          # Test 2: USB Detection  
+          echo -e "\n🔌 USB camera detection:"
+          lsusb | grep -i camera || lsusb | grep -i video || echo "❌ No USB cameras found"
+          
+          # Test 3: V4L2 Capabilities
+          echo -e "\n📊 V4L2 capabilities:"
+          for device in /dev/video*; do
+            if [ -e "$device" ]; then
+              echo "Device: $device"
+              v4l2-ctl --device="$device" --info 2>/dev/null || echo "  ❌ Cannot access $device"
+              v4l2-ctl --device="$device" --list-formats 2>/dev/null || echo "  ❌ Cannot list formats for $device"
+            fi
+          done
+          
+          # Test 4: Permissions
+          echo -e "\n🔐 Device permissions:"
+          for device in /dev/video*; do
+            if [ -e "$device" ]; then
+              echo "Device: $device"
+              echo "  Owner: $(stat -c '%U:%G' $device)"
+              echo "  Permissions: $(stat -c '%A' $device)"
+              [ -r "$device" ] && echo "  ✅ Readable" || echo "  ❌ Not readable"
+              [ -w "$device" ] && echo "  ✅ Writable" || echo "  ❌ Not writable"
+            fi
+          done
+          
+          # Test 5: Kernel Modules
+          echo -e "\n🔧 Kernel modules:"
+          lsmod | grep -E 'uvcvideo|v4l2|videodev' || echo "❌ No video modules loaded"
+          
+          # Test 6: Create capability report
+          echo -e "\n📝 Generating capability report..."
+          cat > /shared/camera-report-$(hostname).txt << EOF
+          Node: $(hostname)
+          Date: $(date)
+          Video Devices: $(ls /dev/video* 2>/dev/null | wc -l)
+          USB Cameras: $(lsusb | grep -i camera | wc -l)
+          V4L2 Working: $(v4l2-ctl --device=/dev/video0 --info >/dev/null 2>&1 && echo "Yes" || echo "No")
+          Recommended for Intruder Detection: $([ -e /dev/video0 ] && echo "Yes" || echo "No - Demo Mode Only")
+          EOF
+          
+          echo "✅ Test completed. Report saved to /shared/camera-report-$(hostname).txt"
+          
+          # Keep container running for manual inspection
+          sleep 3600
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: dev
+          mountPath: /dev
+        - name: sys
+          mountPath: /sys
+        - name: shared-reports
+          mountPath: /shared
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: dev
+        hostPath:
+          path: /dev
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: shared-reports
+        hostPath:
+          path: /tmp/camera-reports
+          type: DirectoryOrCreate
+      tolerations:
+      - operator: Exists  # Run on all nodes including master
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: camera-test-service
+  namespace: camera-testing
+spec:
+  selector:
+    app: camera-test
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30089
+  type: NodePort
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: camera-report-collector
+  namespace: camera-testing
+spec:
+  template:
+    spec:
+      containers:
+      - name: report-collector
+        image: ubuntu:22.04
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          echo "📊 Collecting Camera Reports from All Nodes"
+          echo "==========================================="
+          
+          sleep 60  # Wait for DaemonSet to complete tests
+          
+          echo "📝 Available reports:"
+          ls -la /shared/
+          
+          echo -e "\n📋 CLUSTER CAMERA CAPABILITY SUMMARY:"
+          echo "====================================="
+          
+          for report in /shared/camera-report-*.txt; do
+            if [ -f "$report" ]; then
+              echo -e "\n$(basename $report):"
+              cat "$report"
+            fi
+          done
+          
+          echo -e "\n🎯 DEPLOYMENT RECOMMENDATIONS:"
+          echo "=============================="
+          
+          nodes_with_cameras=0
+          nodes_without_cameras=0
+          
+          for report in /shared/camera-report-*.txt; do
+            if [ -f "$report" ]; then
+              if grep -q "Recommended for Intruder Detection: Yes" "$report"; then
+                node_name=$(grep "Node:" "$report" | cut -d' ' -f2)
+                echo "✅ Deploy intruder detection on: $node_name"
+                ((nodes_with_cameras++))
+              else
+                node_name=$(grep "Node:" "$report" | cut -d' ' -f2)
+                echo "⚠️  Use demo mode on: $node_name"
+                ((nodes_without_cameras++))
+              fi
+            fi
+          done
+          
+          echo -e "\n📊 Summary: $nodes_with_cameras nodes with cameras, $nodes_without_cameras without"
+          
+          if [ $nodes_with_cameras -gt 0 ]; then
+            echo "🎉 Cluster is ready for camera-based intruder detection!"
+          else
+            echo "⚠️  No cameras detected - use demo mode for all deployments"
+          fi
+        volumeMounts:
+        - name: shared-reports
+          mountPath: /shared
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: shared-reports
+        hostPath:
+          path: /tmp/camera-reports
+          type: DirectoryOrCreate
+      restartPolicy: Never

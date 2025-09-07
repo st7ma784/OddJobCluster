@@ -1,0 +1,246 @@
+---
+- name: Camera Device Setup and Verification for Kubernetes Nodes
+  hosts: all
+  become: true
+  gather_facts: true
+  
+  vars:
+    camera_packages:
+      - v4l-utils
+      - uvcdynctrl
+      - guvcview
+      - ffmpeg
+      - python3-opencv
+    
+    camera_kernel_modules:
+      - uvcvideo
+      - videodev
+      - v4l2_common
+      - videobuf2_v4l2
+    
+  tasks:
+    # Phase 1: System Information Gathering
+    - name: Gather system information
+      debug:
+        msg: |
+          🖥️  Node: {{ inventory_hostname }}
+          📊 OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          🏗️  Architecture: {{ ansible_architecture }}
+          🐧 Kernel: {{ ansible_kernel }}
+
+    # Phase 2: Hardware Detection
+    - name: Check for video devices
+      find:
+        paths: /dev
+        patterns: "video*"
+        file_type: any
+      register: video_devices
+
+    - name: Display found video devices
+      debug:
+        msg: "📹 Found video devices: {{ video_devices.files | map(attribute='path') | list }}"
+      when: video_devices.files | length > 0
+
+    - name: Check for missing video devices
+      debug:
+        msg: "❌ No video devices found on {{ inventory_hostname }}"
+      when: video_devices.files | length == 0
+
+    - name: Detect USB cameras
+      shell: lsusb | grep -i camera || lsusb | grep -i video || echo "None found"
+      register: usb_cameras
+      changed_when: false
+
+    - name: Display USB camera detection
+      debug:
+        msg: "🔌 USB cameras/video devices: {{ usb_cameras.stdout_lines }}"
+
+    # Phase 3: Package Installation
+    - name: Install camera utilities and dependencies
+      package:
+        name: "{{ camera_packages }}"
+        state: present
+      register: package_install
+      ignore_errors: true
+
+    - name: Display package installation results
+      debug:
+        msg: |
+          📦 Package installation on {{ inventory_hostname }}:
+          {% for pkg in camera_packages %}
+          - {{ pkg }}: {{ 'installed' if package_install is succeeded else 'failed' }}
+          {% endfor %}
+
+    # Phase 4: Kernel Module Management
+    - name: Load camera kernel modules
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ camera_kernel_modules }}"
+      ignore_errors: true
+      register: module_load
+
+    - name: Check loaded video modules
+      shell: lsmod | grep -E 'uvcvideo|v4l2|videodev' || echo "No video modules loaded"
+      register: loaded_modules
+      changed_when: false
+
+    - name: Display loaded modules
+      debug:
+        msg: "🔧 Loaded video modules: {{ loaded_modules.stdout_lines }}"
+
+    # Phase 5: Device Permissions and Groups
+    - name: Ensure video group exists
+      group:
+        name: video
+        state: present
+
+    - name: Add users to video group
+      user:
+        name: "{{ item }}"
+        groups: video
+        append: true
+      loop:
+        - root
+        - "{{ ansible_user }}"
+      ignore_errors: true
+
+    - name: Set video device permissions
+      file:
+        path: "{{ item.path }}"
+        owner: root
+        group: video
+        mode: '0664'
+      loop: "{{ video_devices.files }}"
+      when: video_devices.files | length > 0
+
+    # Phase 6: Camera Testing
+    - name: Test camera device access
+      shell: |
+        if [ -e /dev/video0 ]; then
+          v4l2-ctl --device=/dev/video0 --info 2>/dev/null || echo "Cannot access /dev/video0"
+          v4l2-ctl --device=/dev/video0 --list-formats 2>/dev/null || echo "Cannot list formats for /dev/video0"
+        else
+          echo "No /dev/video0 device found"
+        fi
+      register: camera_test
+      changed_when: false
+
+    - name: Display camera test results
+      debug:
+        msg: "🧪 Camera test results: {{ camera_test.stdout_lines }}"
+
+    # Phase 7: Container Runtime Verification
+    - name: Check if containerd/docker can access devices
+      shell: |
+        if command -v docker &> /dev/null; then
+          echo "Docker available"
+          docker run --rm --device=/dev/video0 ubuntu:22.04 ls -la /dev/video0 2>/dev/null || echo "Docker cannot access camera"
+        elif command -v ctr &> /dev/null; then
+          echo "containerd available"
+          # containerd test would require more setup
+        else
+          echo "No container runtime found"
+        fi
+      register: container_test
+      changed_when: false
+      ignore_errors: true
+
+    - name: Display container test results
+      debug:
+        msg: "🐳 Container runtime test: {{ container_test.stdout_lines }}"
+
+    # Phase 8: Kubernetes Node Labeling
+    - name: Label nodes with camera capabilities
+      delegate_to: "{{ groups['master'][0] }}"
+      shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        if [ {{ video_devices.files | length }} -gt 0 ]; then
+          kubectl label node {{ inventory_hostname }} camera.cluster.local/available=true --overwrite
+          kubectl label node {{ inventory_hostname }} camera.cluster.local/device-count={{ video_devices.files | length }} --overwrite
+          echo "Node labeled with camera capabilities"
+        else
+          kubectl label node {{ inventory_hostname }} camera.cluster.local/available=false --overwrite
+          kubectl label node {{ inventory_hostname }} camera.cluster.local/device-count=0 --overwrite
+          echo "Node labeled without camera capabilities"
+        fi
+      when: inventory_hostname in groups['master'] or groups['workers']
+      register: node_labeling
+      ignore_errors: true
+
+    - name: Display node labeling results
+      debug:
+        msg: "🏷️  Node labeling: {{ node_labeling.stdout if node_labeling is defined else 'Skipped' }}"
+
+  # Post-task reporting
+  post_tasks:
+    - name: Generate camera capability summary
+      debug:
+        msg: |
+          📊 CAMERA CAPABILITY SUMMARY FOR {{ inventory_hostname }}:
+          ===============================================
+          
+          🎥 Video Devices: {{ video_devices.files | length }}
+          {% for device in video_devices.files %}
+          - {{ device.path }}
+          {% endfor %}
+          
+          🔌 USB Cameras: {{ 'Found' if 'camera' in usb_cameras.stdout.lower() or 'video' in usb_cameras.stdout.lower() else 'None detected' }}
+          
+          📦 Package Status: {{ 'Installed' if package_install is succeeded else 'Failed' }}
+          
+          🔧 Kernel Modules: {{ 'Loaded' if 'uvcvideo' in loaded_modules.stdout else 'Missing' }}
+          
+          🧪 Device Access: {{ 'Working' if '/dev/video0' in camera_test.stdout else 'Failed' }}
+          
+          🐳 Container Ready: {{ 'Yes' if container_test is succeeded else 'Needs verification' }}
+          
+          💡 Recommendation: 
+          {% if video_devices.files | length > 0 %}
+          ✅ This node is suitable for camera-based intruder detection
+          {% else %}
+          ⚠️  This node should use demo mode or requires USB camera installation
+          {% endif %}
+      when: inventory_hostname != groups['master'][0]  # Avoid duplicate output
+
+    - name: Create camera verification report
+      copy:
+        content: |
+          # Camera Verification Report
+          Generated: {{ ansible_date_time.iso8601 }}
+          
+          ## Node: {{ inventory_hostname }}
+          - IP: {{ ansible_default_ipv4.address }}
+          - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - Kernel: {{ ansible_kernel }}
+          
+          ## Camera Devices
+          {% for device in video_devices.files %}
+          - {{ device.path }}
+          {% endfor %}
+          {% if video_devices.files | length == 0 %}
+          - No video devices found
+          {% endif %}
+          
+          ## USB Detection
+          {{ usb_cameras.stdout }}
+          
+          ## Kernel Modules
+          {{ loaded_modules.stdout }}
+          
+          ## Device Test
+          {{ camera_test.stdout }}
+          
+          ## Recommendations
+          {% if video_devices.files | length > 0 %}
+          - ✅ Deploy intruder detection with camera access
+          - ✅ Use device path: {{ video_devices.files[0].path }}
+          - ✅ Node selector: kubernetes.io/hostname={{ inventory_hostname }}
+          {% else %}
+          - ⚠️  Deploy in demo mode only
+          - ⚠️  Consider USB camera installation
+          - ⚠️  Use simulation for testing
+          {% endif %}
+        dest: "/tmp/camera-report-{{ inventory_hostname }}.md"
+        mode: '0644'
+      delegate_to: localhost

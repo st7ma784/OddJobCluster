@@ -243,6 +243,20 @@
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
 
+    # Intruder Detection Security System
+    - name: Deploy Intruder Detection System
+      shell: kubectl apply -f ../kubernetes/manifests/intruder-detection.yaml
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Wait for intruder detection deployment
+      shell: kubectl wait --for=condition=available --timeout=300s deployment/intruder-detection -n security
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      ignore_errors: true
+
     # Phase 5: Kubernetes Dashboard Deployment
     - name: Create Kubernetes Dashboard deployment manifest
       copy:
@@ -981,6 +995,39 @@
                       port:
                         number: 5000
           ---
+          # Security Services Ingress
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: security-services-ingress
+            namespace: security
+            annotations:
+              nginx.ingress.kubernetes.io/rewrite-target: /$2
+              nginx.ingress.kubernetes.io/use-regex: "true"
+              nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+          spec:
+            ingressClassName: nginx
+            rules:
+            - host: cluster.local
+              http:
+                paths:
+                # Intruder Detection System
+                - path: /security(/|$)(.*)
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: intruder-detection-service
+                      port:
+                        number: 8080
+                # Camera Stream Access
+                - path: /camera-stream(/|$)(.*)
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: intruder-detection-service
+                      port:
+                        number: 8090
+          ---
           # LUStores Ingress (separate namespace)
           apiVersion: networking.k8s.io/v1
           kind: Ingress
@@ -1037,6 +1084,13 @@
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
 
+    - name: Verify Intruder Detection deployment
+      shell: kubectl get pods -l app=intruder-detection -n security -o jsonpath='{.items[*].status.phase}' | grep -o Running | wc -l
+      register: running_intruder_detection_pods
+      when: inventory_hostname in groups['master']
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
     - name: Get Dashboard admin token
       shell: kubectl -n kubernetes-dashboard create token admin-user --duration=8760h
       register: dashboard_token
@@ -1087,6 +1141,7 @@
           
           🌐 DEPLOYED SERVICES:
           - AtmosRay pods running: {{ hostvars[groups['master'][0]]['running_atmosray_pods']['stdout'] | default('0') }}
+          - Intruder Detection pods running: {{ hostvars[groups['master'][0]]['running_intruder_detection_pods']['stdout'] | default('0') }}
           - Ingress controller running: {{ hostvars[groups['master'][0]]['ingress_controller_status']['stdout'] | default('0') }}
           - Ingress rules deployed: {{ hostvars[groups['master'][0]]['ingress_rules_count']['stdout'] | default('0') }}
           
@@ -1099,9 +1154,15 @@
           
           🌐 Service Access (NodePort):
           - AtmosRay: http://{{ cluster_nodes[0].ip }}:30500
+          - Intruder Detection: http://{{ cluster_nodes[0].ip }}:30085
+          - Camera Stream: http://{{ cluster_nodes[0].ip }}:30086
+          - Security Metrics: http://{{ cluster_nodes[0].ip }}:30087
           - Dashboard: https://{{ cluster_nodes[0].ip }}:30443
           
           🎯 Ingress Access (when DNS configured):
+          - AtmosRay: http://cluster.local:30880/atmosray
+          - Security Dashboard: http://cluster.local:30880/security
+          - Camera Stream: http://cluster.local:30880/camera-stream
           - Main services: http://cluster.local:30880/
           - Add to /etc/hosts: {{ cluster_nodes[0].ip }} cluster.local shop.cluster.local
           
